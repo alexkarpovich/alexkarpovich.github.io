@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time Tracking for Trello</title>
+  <link rel="icon" href="img/icon.svg">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="page">
+  <main class="landing">
+    <h1>Time Tracking for Trello</h1>
+    <p class="lead">A Power-Up that logs time on cards (<code>30m</code>, <code>1h 40m</code>, <code>1d</code>, <code>1w</code>), board reports with label and author filters, Excel export, and epic time limits. Data stays in Trello — no server required.</p>
+    <p><a href="preview.html">Open UI preview</a></p>
+
+    <h2>Format</h2>
+    <ul>
+      <li><code>30m</code>, <code>1h</code>, <code>1h 40m</code>, <code>1.5h</code>, <code>1:40</code></li>
+      <li><code>1d</code> — work day (default 8 hours)</li>
+      <li><code>1w</code> — work week (default 5 days)</li>
+      <li>Russian units still work: <code>30мин</code>, <code>2ч</code>, <code>1д</code>, <code>1нед</code></li>
+    </ul>
+
+    <h2>Epics</h2>
+    <p>An epic is a normal card with a checklist of child cards. Set a limit (e.g. <code>2w</code>). Remaining = limit minus time logged on child cards. Time on the epic card itself does not count toward the limit. Checklist items count only when linked to a card or containing a <code>trello.com/c/...</code> URL.</p>
+
+    <h2>GitHub Pages</h2>
+    <ol>
+      <li>Push this repo to public branch <code>main</code>.</li>
+      <li>Settings → Pages → Deploy from branch → <code>main</code> → <code>/ (root)</code>.</li>
+      <li>Use <code>https://USER.github.io/REPO/</code> as your site URL.</li>
+      <li>Create a Power-Up at <a href="https://trello.com/power-ups/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://USER.github.io/REPO/index.html</code>.</li>
+      <li>Enable capabilities: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings.</li>
+      <li>Add the Power-Up to a board.</li>
+    </ol>
+    <p>API key is optional. Set it in <code>js/config.js</code> if Trello does not return checklist items for epic remaining time in the report.</p>
+
+    <h2>Storage</h2>
+    <p>Entries are stored in shared Power-Up data on each card (~4 KB per card). Everyone who can see the card can read the log; only the author can edit their own entries.</p>
+  </main>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/duration.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/epic.js"></script>
+  <script src="js/badges.js"></script>
+  <script src="js/connector.js"></script>
+</body>
+</html>

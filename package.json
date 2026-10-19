@@ -1,0 +1,7 @@
+{
+  "name": "trello-time-tracking-power-up",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
