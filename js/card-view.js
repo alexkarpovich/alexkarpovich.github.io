@@ -19,7 +19,13 @@
     return button;
   }
 
+  function helpTip(text) {
+    return h("span", { class: "help-tip", tabindex: "0", role: "img", "aria-label": text, title: text }, "?");
+  }
+
   function mountCardView(rootNode, handlers) {
+    let editingLimit = false;
+    let latestModel = null;
     const duration = h("input", {
       class: "field-time",
       name: "duration",
@@ -58,7 +64,24 @@
     });
     const limitButton = h("button", { type: "submit", class: "button mod-primary" }, "Save limit");
     const clearLimit = h("button", { type: "button", class: "button-link" }, "Clear");
+    const cancelLimit = h("button", { type: "button", class: "button-link", onclick: function () {
+      editingLimit = false;
+      limitError.textContent = "";
+      paintLimit(latestModel);
+    } }, "Cancel");
     const limitError = h("div", { class: "error", role: "alert" });
+    const limitValue = h("strong");
+    const editLimit = entryAction("Edit epic limit",
+      '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
+      false, false, function () {
+        editingLimit = true;
+        limitError.textContent = "";
+        limitInput.value = format(latestModel.limitMinutes, latestModel.settings);
+        paintLimit(latestModel);
+        limitInput.focus();
+        limitInput.select();
+      });
+    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
 
     const form = h("form", { class: "log-form" }, [
@@ -67,12 +90,13 @@
     ]);
 
     const limitForm = h("form", { class: "limit-form" }, [
-      h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit]),
+      h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
       limitError
     ]);
-    const epicHelp = h("span", { class: "help-tip", tabindex: "0", role: "img", "aria-label": "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.", title: "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded." }, "?");
+    const epicHelp = helpTip("Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.");
     const epicSection = h("section", { class: "epic", hidden: true }, [
       h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
+      limitSummary,
       limitForm,
       epicBody
     ]);
@@ -123,7 +147,7 @@
     function saveLimit(raw) {
       if (!String(raw || "").trim()) {
         limitError.textContent = "";
-        handlers.onLimit(null).catch(showLimitError);
+        persistLimit(null);
         return;
       }
       const parsed = root.TimeDuration.parseDuration(raw, handlers.settings());
@@ -132,7 +156,28 @@
         return;
       }
       limitError.textContent = "";
-      handlers.onLimit(parsed.minutes).catch(showLimitError);
+      persistLimit(parsed.minutes);
+    }
+
+    function persistLimit(minutes) {
+      handlers.onLimit(minutes).then(function () {
+        editingLimit = false;
+        paintLimit(latestModel);
+      }).catch(showLimitError);
+    }
+
+    function paintLimit(model) {
+      if (!model) return;
+      const hasLimit = model.limitMinutes != null;
+      const canWrite = model.canWrite !== false;
+      limitForm.hidden = !canWrite || (hasLimit && !editingLimit);
+      limitSummary.hidden = !hasLimit || editingLimit;
+      limitValue.textContent = hasLimit ? format(model.limitMinutes, model.settings) : "";
+      editLimit.hidden = !canWrite;
+      editLimit.disabled = !!model.saving || !canWrite;
+      cancelLimit.hidden = !hasLimit;
+      cancelLimit.disabled = !!model.saving;
+      clearLimit.hidden = !hasLimit;
     }
 
     function showLimitError(error) {
@@ -212,8 +257,10 @@
     let cardId = "";
 
     function update(model) {
+      latestModel = model;
       const settings = model.settings;
       if (model.cardId !== cardId) {
+        editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
         note.value = "";
@@ -235,7 +282,7 @@
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
-      limitForm.hidden = !canWrite;
+      paintLimit(model);
 
       if (model.error) formError.textContent = model.error;
       if (model.limitError) limitError.textContent = model.limitError;
@@ -292,7 +339,7 @@
         debugHost.textContent = "";
       }
 
-      if (!limitInput.matches(":focus")) {
+      if (!editingLimit && !limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
       epicSection.hidden = !(model.children.length || model.limitMinutes != null || model.hasChecklists);
@@ -361,7 +408,10 @@
         : format(left, settings) + " left"));
       epicBody.appendChild(h("div", { class: "bar" + (left < 0 ? " is-over" : "") }, h("span", { style: "width:" + (Math.round(ratio * 1000) / 10) + "%" })));
       epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings) + " of " + format(model.limitMinutes, settings)));
-      if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint" }, "Estimated finish: " + model.estimatedFinish + " (based on logged workdays, excluding weekends and dates from board settings)."));
+      if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
+        "Est. finish: " + model.estimatedFinish,
+        helpTip("Based on the average logged time per working day. Weekends and excluded dates in board settings are skipped.")
+      ]));
 
       if (!model.children.length) {
         epicBody.appendChild(h("p", { class: "empty-state" }, "No cards in checklists."));
