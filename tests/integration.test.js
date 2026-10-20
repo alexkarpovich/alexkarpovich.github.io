@@ -15,7 +15,7 @@ function runPage(name, window, extra = {}) {
   });
 }
 
-function cardHarness() {
+function cardHarness(overrides = {}) {
   let render;
   let handlers;
   let latest;
@@ -48,6 +48,7 @@ function cardHarness() {
     sizeTo: async () => {},
     cards: async () => []
   };
+  Object.assign(client, overrides);
   const window = {
     parent: {},
     TIMETRACK_CONFIG: { appKey: "test-key", appName: "Test" },
@@ -212,4 +213,162 @@ test("report recovers from an initial failure and does not read inaccessible chi
   assert.equal(latest.epics[0].known, false);
   assert.equal(latest.epics[0].remainingMinutes, null);
   assert.equal(reads.includes("gone"), false);
+});
+
+test("epic refresh loads REST checklists and child logs after read access is granted", async t => {
+  let authorized = false;
+  let unreadable = false;
+  const own = { lim: 240, who: [["me", "Me"]], e: [["own", 20261020, 180, 0]] };
+  const children = [
+    { id: "child1", name: "First", shortLink: "first", url: "https://trello.com/c/first" },
+    { id: "child2", name: "Second", shortLink: "second", url: "https://trello.com/c/second" }
+  ];
+  t.mock.method(globalThis, "fetch", async url => {
+    const parsed = new URL(url);
+    assert.equal(parsed.searchParams.get("token"), "token");
+    if (parsed.pathname.endsWith("/checklists")) return {
+      ok: true, json: async () => [{ id: "list", checkItems: [
+        { name: children[0].url }, { name: children[1].url }, { name: children[0].url }
+      ] }]
+    };
+    const minutes = parsed.pathname.includes("child1") ? 30 : 90;
+    return {
+      ok: !unreadable, status: 403,
+      json: async () => [{ value: JSON.stringify({ time: { who: [["me", "Me"]], e: [["log", 20261020, minutes, 0]] } }) }]
+    };
+  });
+  const h = cardHarness({
+    card: async () => ({ id: "epic", name: "Epic", checklists: [{ id: "list" }] }),
+    cards: async () => children,
+    getRestApi: () => ({ isAuthorized: () => authorized, getToken: () => authorized ? "token" : null }),
+    get: async (scope, visibility, key, fallback) => {
+      if (scope === "board") return fallback;
+      if (scope === "card") return own;
+      throw new Error("Read child via REST");
+    }
+  });
+  await h.render();
+  assert.equal(h.latest().needsChecklistAuth, true);
+  assert.equal(h.latest().kidsKnown, false);
+  authorized = true;
+  await h.render();
+  const loaded = h.latest();
+  assert.equal(loaded.authorized, true);
+  assert.equal(loaded.kidsKnown, true);
+  assert.equal(loaded.remoteChecklistsFetched, true);
+  assert.deepEqual(loaded.children.map(child => child.minutes), [30, 90]);
+  const spent = loaded.children.reduce((sum, child) => sum + child.minutes, 0);
+  assert.equal(spent, 120, "own epic time and duplicate links must not count");
+  assert.equal(loaded.limitMinutes - spent, 120);
+  assert.equal(h.writes(), 0);
+  unreadable = true;
+  await h.render();
+  assert.equal(h.latest().kidsKnown, false, "failed reads must not produce a positive remaining time");
+});
+
+test("authorization capabilities return Trello's contract and open an embedded settings panel", async () => {
+  let capabilities;
+  const window = {
+    parent: {}, location: { href: "https://example.com/index.html" },
+    TIMETRACK_CONFIG: { appKey: "key" }, TimeRuntime: runtime,
+    TrelloPowerUp: { initialize: value => { capabilities = value; } }
+  };
+  runPage("connector.js", window);
+  let authorized = false;
+  let popup;
+  const client = {
+    getRestApi: () => ({ isAuthorized: () => authorized }),
+    popup: async options => { popup = options; }
+  };
+  assert.equal((await capabilities["authorization-status"](client)).authorized, false);
+  authorized = true;
+  assert.equal((await capabilities["authorization-status"](client)).authorized, true);
+  await capabilities["show-authorization"](client);
+  assert.equal(popup.url, "./settings.html");
+});
+
+test("report requests access for hidden checklist items and computes remaining after authorization", async t => {
+  let render;
+  let latest;
+  let notice;
+  let authorized = false;
+  let failed = false;
+  const banner = { hidden: true, appendChild() {} };
+  const cards = [
+    { id: "epic", name: "Epic", shortLink: "epic", checklists: [{ id: "list", checkItems: [] }] },
+    { id: "child", name: "Task", shortLink: "task", checklists: [] }
+  ];
+  const client = {
+    render: callback => { render = callback; },
+    cards: async () => cards, lists: async () => [], board: async () => ({ id: "board" }),
+    getRestApi: () => ({ isAuthorized: () => authorized, getToken: () => authorized ? "token" : null }),
+    get: async scope => {
+      if (scope === "board") return null;
+      if (scope === "epic") return { lim: 240, e: [] };
+      if (failed) throw new Error("offline");
+      return { who: [["me", "Me"]], e: [["log", 20261020, 90, 0]] };
+    }
+  };
+  t.mock.method(globalThis, "fetch", async url => {
+    if (url.includes("/pluginData")) return { ok: false, status: 403 };
+    return { ok: true, json: async () => [
+      { id: "epic", checklists: [{ id: "list", checkItems: [{ name: "https://trello.com/c/task" }] }] }
+    ] };
+  });
+  const window = {
+    parent: {}, TIMETRACK_CONFIG: { appKey: "key" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeAggregate: require("../js/aggregate"), TimeTheme: { bind() {} },
+    TimeDom: { clear() {}, h: () => ({ addEventListener() {} }) },
+    TimeReportView: { mount: () => ({
+      filters: () => ({ from: "2026-10-01", to: "2026-10-31" }),
+      update: (value, message) => { latest = value; notice = message; }
+    }) },
+    TrelloPowerUp: { iframe: () => client }
+  };
+  runPage("report-page.js", window, { document: { getElementById: id => id === "app" ? {} : banner } });
+  await render();
+  assert.equal(banner.hidden, false);
+  authorized = true;
+  await render();
+  assert.equal(banner.hidden, true);
+  assert.equal(latest.epics[0].remainingMinutes, 150);
+  failed = true;
+  await render();
+  assert.equal(latest.epics[0].known, false);
+  assert.equal(latest.epics[0].remainingMinutes, null);
+  assert.match(notice, /totals may be incomplete/);
+});
+
+test("epic badges use remote links and suppress remaining when child logs are unreadable", async t => {
+  let capabilities;
+  let failed = false;
+  t.mock.method(globalThis, "fetch", async url => {
+    if (url.includes("/pluginData")) return { ok: false, status: 403 };
+    return { ok: true, json: async () => [{
+      id: "list", checkItems: [{ name: "https://trello.com/c/task" }]
+    }] };
+  });
+  runPage("connector.js", {
+    parent: {}, location: { href: "https://example.com/index.html" },
+    TIMETRACK_CONFIG: { appKey: "key" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeBadges: require("../js/badges"),
+    TrelloPowerUp: { initialize: value => { capabilities = value; } }
+  });
+  const client = {
+    getContext: () => ({ board: "board", card: "epic" }),
+    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "token" }),
+    card: async () => ({ id: "epic", checklists: [{ id: "list" }] }),
+    cards: async () => [{ id: "child", name: "Task", shortLink: "task" }],
+    get: async scope => {
+      if (scope === "board") return null;
+      if (scope === "card") return { lim: 240, e: [] };
+      if (failed) throw new Error("offline");
+      return { who: [["me", "Me"]], e: [["log", 20261020, 90, 0]] };
+    }
+  };
+  assert.equal((await capabilities["card-badges"](client))[0].text, "2h 30m left");
+  failed = true;
+  assert.equal((await capabilities["card-badges"](client))[0].text, "limit 4h");
 });

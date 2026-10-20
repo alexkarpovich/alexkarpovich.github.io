@@ -11,33 +11,6 @@
 </head>
 <body class="frame trello-power-up">
   <p id="msg" class="hint">Finishing sign-in…</p>
-  <script src="https://p.trellocdn.com/power-up.min.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/runtime.js"></script>
-  <script>
-  (function () {
-    var msg = document.getElementById("msg");
-    if (!window.TrelloPowerUp || !window.TimeRuntime) {
-      msg.textContent = "Sign-in finished. Close this tab and return to your Trello board.";
-      return;
-    }
-    var t = window.TimeRuntime.createIframe(window.TIMETRACK_CONFIG, window.TrelloPowerUp);
-    if (!t) {
-      msg.textContent = "Sign-in finished. Close this tab and return to your Trello board.";
-      return;
-    }
-    t.render(function () {
-      return window.TimeRuntime.restApi(t).then(function (api) {
-        var ok = api.isAuthorized();
-        return ok && typeof ok.then === "function" ? ok : Promise.resolve(ok);
-      }).then(function (ok) {
-        msg.textContent = ok ? "Done. You can return to the board." : "Authorization incomplete. Try Allow again on the board.";
-        return t.closePopup().catch(function () {});
-      }).catch(function () {
-        msg.textContent = "Return to the board and click Allow read access again.";
-      });
-    });
-  })();
-  </script>
+  <script src="js/auth-complete.js?v=2026.10.20-auth-callback"></script>
 </body>
 </html>

@@ -116,10 +116,14 @@
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
-      let kids = fromClient.complete ? fromClient.childIds : null;
+      const needsRemote = state.limitMinutes != null && (
+        !(fromClient.childIds && fromClient.childIds.length) ||
+        window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists)
+      );
+      let kids = fromClient.complete && !needsRemote ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
         const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks, nameIndex);
-        if (parsed.complete) kids = parsed.childIds;
+        kids = parsed.complete ? parsed.childIds : null;
       }
       return {
         id: card.id,
@@ -132,12 +136,15 @@
         entries: state.entries,
         limitMinutes: state.limitMinutes,
         kids: state.limitMinutes != null ? kids : null,
-        missing: false
+        missing: boardTimes.unreadableIds.has(card.id)
       };
     });
 
     const unknown = cardsOut.filter(function (card) { return card.limitMinutes != null && !Array.isArray(card.kids); });
     let message = "Report includes only visible cards in open lists; archived cards are excluded.";
+    if (boardTimes.unreadableIds.size) {
+      message += " Some time logs could not be read; totals may be incomplete. Reload the report to retry.";
+    }
     if (unknown.length && !appKey()) {
       message += " Checklists for some epics were not returned by Trello. Open the epic card to inspect its links.";
     } else if (unknown.length && remote.needsAuth) {
@@ -155,7 +162,7 @@
       if (!(await window.TimeRuntime.asPromise(api.isAuthorized()))) return { map: null, needsAuth: true };
       const token = await window.TimeRuntime.asPromise(api.getToken());
       const board = await t.board("id");
-      const list = await window.TimeRuntime.fetchJson("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,idCard,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
+      const list = await window.TimeRuntime.fetchJson("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
       const map = new Map();
       list.forEach(function (card) { map.set(card.id, card.checklists); });
       return { map: map, needsAuth: false };

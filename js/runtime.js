@@ -131,7 +131,8 @@
     try {
       const api = await restApi(client);
       if (!(await asPromise(api.isAuthorized()))) return null;
-      return { appKey: appKey, token: await asPromise(api.getToken()) };
+      const token = await asPromise(api.getToken());
+      return token ? { appKey: appKey, token: token } : null;
     } catch (error) {
       return null;
     }
@@ -139,7 +140,10 @@
 
   function authorizeReturnUrl() {
     try {
-      return new URL("auth-complete.html", window.location.href).href.split("#")[0];
+      const url = new URL("auth-complete.html", window.location.href);
+      url.search = "";
+      url.hash = "";
+      return url.href;
     } catch (error) {
       return window.location.origin + "/auth-complete.html";
     }
@@ -147,19 +151,25 @@
 
   // Start getRestApi().authorize() synchronously from a click handler (no await before authorize).
   function authorizeReadAccess(client) {
-    return restApi(client).then(function (api) {
+    function authorize(api) {
       return asPromise(api.authorize({
         scope: "read",
         expiration: "never",
-        return_url: authorizeReturnUrl()
+        // The SDK accepts returnUrl; return_url is only the REST query parameter.
+        returnUrl: authorizeReturnUrl()
       }));
-    }).then(function () {
-      return restApi(client).then(function (api) {
-        return asPromise(api.isAuthorized());
+    }
+    try {
+      const api = client.getRestApi();
+      const pending = api && typeof api.then === "function" ? api.then(authorize) : authorize(api);
+      return asPromise(pending).then(function () {
+        return isReadAuthorized(client);
+      }).then(function (ok) {
+        if (!ok) throw new Error("Authorization was not completed.");
       });
-    }).then(function (ok) {
-      if (!ok) throw new Error("Authorization was not completed.");
-    });
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   async function isReadAuthorized(client) {
@@ -172,20 +182,28 @@
   }
 
   async function readSharedTime(client, cardId, rest, modelApi) {
+    let readable = false;
     try {
-      let packed = normalizePacked(modelApi, await client.get(cardId, "shared", "time", null));
+      const packed = normalizePacked(modelApi, await client.get(cardId, "shared", "time", null));
+      readable = true;
       if (packed) return packed;
+    } catch (error) { /* Try the full shared scope and then REST. */ }
+    try {
       const shared = await client.get(cardId, "shared");
-      packed = normalizePacked(modelApi, shared && shared.time);
+      const packed = normalizePacked(modelApi, shared && shared.time);
+      readable = true;
       if (packed) return packed;
-      if (!rest || !rest.appKey || !rest.token) return null;
+    } catch (error) { /* A failed SDK read must not skip the REST fallback. */ }
+    if (!rest || !rest.appKey || !rest.token) return readable ? null : undefined;
+    try {
       const rows = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/pluginData?key=" + encodeURIComponent(rest.appKey) + "&token=" + encodeURIComponent(rest.token));
-      if (!Array.isArray(rows)) return null;
+      if (!Array.isArray(rows)) return undefined;
       for (let i = 0; i < rows.length; i += 1) {
-        packed = normalizePacked(modelApi, rows[i].value);
+        const packed = normalizePacked(modelApi, rows[i].value);
         if (packed) return packed;
       }
-    } catch (error) { /* unreadable card */ }
+    } catch (error) { return undefined; }
+    // null means no log; undefined means unreadable and must not count as zero.
     return null;
   }
 
@@ -216,7 +234,10 @@
     const timeById = new Map(boardCards.map(function (card, index) {
       return [card.id, packedList[index]];
     }));
-    return { boardCards: boardCards, timeById: timeById, rest: rest };
+    const unreadableIds = new Set(boardCards.filter(function (card, index) {
+      return packedList[index] === undefined;
+    }).map(function (card) { return card.id; }));
+    return { boardCards: boardCards, timeById: timeById, unreadableIds: unreadableIds, rest: rest };
   }
 
   async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi, boardContext) {
@@ -246,7 +267,7 @@
         const rest = await restCredentials(client, appKey);
         if (!rest) checklistAuthNeeded = true;
         else {
-          checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
+          checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
           remoteChecklistsFetched = true;
           checklists = await hydrateChecklistItems(checklists, appKey, rest);
           local = inspect();
@@ -273,7 +294,7 @@
       if (!list || !list.id) return list;
       if (Array.isArray(list.checkItems) && list.checkItems.length) return list;
       try {
-        const items = await fetchJson("https://api.trello.com/1/checklists/" + encodeURIComponent(list.id) + "/checkItems?fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
+        const items = await fetchJson("https://api.trello.com/1/checklists/" + encodeURIComponent(list.id) + "/checkItems?fields=name,state&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
         return Object.assign({}, list, { checkItems: Array.isArray(items) ? items : [] });
       } catch (error) {
         return list;

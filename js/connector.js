@@ -60,7 +60,7 @@
     const kids = inspection.childIds || [];
     if (!kids.length) return summary;
     const visible = new Set(board.boardCards.map(function (card) { return card.id; }));
-    if (kids.some(function (id) { return !visible.has(id); })) return summary;
+    if (kids.some(function (id) { return !visible.has(id) || board.unreadableIds.has(id); })) return summary;
     summary.spentMinutes = kids.reduce(function (sum, id) {
       return sum + window.TimeModel.totalMinutes(window.TimeModel.decode(board.timeById.get(id)).entries);
     }, 0);
@@ -99,8 +99,17 @@
       });
     },
     "authorization-status": function (t) {
-      if (!needsReadAccess()) return Promise.resolve(true);
-      return window.TimeRuntime.isReadAuthorized(t);
+      if (!needsReadAccess()) return Promise.resolve({ authorized: true });
+      return window.TimeRuntime.isReadAuthorized(t).then(function (authorized) {
+        return { authorized: authorized };
+      });
+    },
+    "show-authorization": function (t) {
+      return t.popup({
+        title: "Time tracking — read access",
+        url: "./settings.html",
+        height: 420
+      });
     },
     "card-buttons": function () {
       return [{ icon: icon, text: "Time", callback: openCard }];

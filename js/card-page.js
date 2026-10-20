@@ -296,7 +296,7 @@
         name: info ? info.name : "Unavailable card",
         url: info ? info.url : "",
         minutes: window.TimeModel.totalMinutes(decoded.entries),
-        missing: !info
+        missing: !info || board.unreadableIds.has(id)
       };
     });
 

@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const runtime = require("../js/runtime");
+const model = require("../js/model");
+const epic = require("../js/epic");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 test("reader coalesces pending reads, bounds concurrency and does not cache results", async () => {
@@ -83,4 +85,54 @@ test("failed pools stop scheduling and finish in-flight work before rejecting", 
   }), /offline/);
   assert.equal(active, 0);
   assert.equal(calls, 3);
+});
+
+test("child logs fall back to REST even when both SDK reads reject", async t => {
+  const packed = { who: [["me", "Me"]], e: [["entry", 20261020, 90, 0]] };
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async url => {
+    urls.push(new URL(url));
+    return { ok: true, json: async () => [{ value: JSON.stringify({ time: packed }) }] };
+  });
+  const client = { get: async () => { throw new Error("SDK cannot read card"); } };
+  const actual = await runtime.readSharedTime(client, "child", { appKey: "key", token: "token" }, model);
+  assert.equal(model.totalMinutes(model.decode(actual).entries), 90);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0].pathname, "/1/cards/child/pluginData");
+});
+
+test("board times distinguish an empty log from unreadable data", async t => {
+  t.mock.method(globalThis, "fetch", async url => ({
+    ok: !url.includes("/broken/"), status: 403, json: async () => []
+  }));
+  const result = await runtime.loadBoardTimes({
+    cards: async () => [{ id: "empty" }, { id: "broken" }],
+    get: async () => null,
+    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "token" })
+  }, "key", model);
+  assert.equal(result.timeById.get("empty"), null);
+  assert.equal(result.timeById.get("broken"), undefined);
+  assert.deepEqual([...result.unreadableIds], ["broken"]);
+});
+
+test("remote checklist names resolve child links and deduplicate them", async t => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async url => {
+    requests.push(new URL(url));
+    return { ok: true, json: async () => [{
+      id: "list", checkItems: [
+        { name: "https://trello.com/c/childOne/task" },
+        { name: "[Task](https://trello.com/c/childOne/task)", state: "complete" }
+      ]
+    }] };
+  });
+  const result = await runtime.resolveChecklistInspection({
+    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "token" })
+  }, "epic", { checklists: [{ id: "list" }] }, true, "key", epic, {
+    boardCards: [{ id: "child", shortLink: "childOne", name: "Task" }]
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.remoteChecklistsFetched, true);
+  assert.deepEqual(result.childIds, ["child"]);
+  assert.equal(requests[0].searchParams.get("checkItem_fields"), "name,state");
 });

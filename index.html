@@ -32,7 +32,7 @@
       <li>Settings → Pages → Deploy from branch → <code>main</code> → <code>/ (root)</code>.</li>
       <li>Use <code>https://USER.github.io/REPO/</code> as your site URL.</li>
       <li>Create a Power-Up at <a href="https://trello.com/apps/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://USER.github.io/REPO/index.html</code>.</li>
-      <li>Enable capabilities: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings, On enable, Authorization status.</li>
+      <li>Enable capabilities: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings, On enable, Authorization status, Show authorization.</li>
       <li>Add the Power-Up to a board.</li>
     </ol>
     <p>For a repository named USER.github.io, omit REPO from the URL.</p>
@@ -42,12 +42,12 @@
     <p>Entries are stored in shared Power-Up data on each card (4096 characters per shared card scope). Everyone who can see the card can read the log. The interface allows authors to edit their own entries; shared storage does not enforce per-entry author permissions.</p>
   </main>
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/runtime.js"></script>
-  <script src="js/duration.js"></script>
-  <script src="js/model.js"></script>
-  <script src="js/epic.js"></script>
-  <script src="js/badges.js"></script>
-  <script src="js/connector.js"></script>
+  <script src="js/config.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/runtime.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/duration.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/model.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/epic.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/badges.js?v=2026.10.20-auth-callback"></script>
+  <script src="js/connector.js?v=2026.10.20-auth-callback"></script>
 </body>
 </html>
