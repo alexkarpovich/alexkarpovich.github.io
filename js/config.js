@@ -5,5 +5,5 @@ window.TIMETRACK_CONFIG = {
   appKey: "e7c6a3aac8963848b7706bf61469df27",
   appName: "Time Tracking",
   appAuthor: "Time Tracking",
-  build: "2026.10.20-rest-once"
+  build: "2026.10.20-settings-auth"
 };

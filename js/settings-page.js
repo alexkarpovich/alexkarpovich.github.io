@@ -34,10 +34,10 @@
     error,
     button
   ]);
-  app.appendChild(form);
   button.disabled = !canWrite;
   if (!canWrite) error.textContent = "This board is read-only.";
 
+  let authSection = null;
   if (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) {
     const authStatus = h("p", { class: "hint", role: "status" });
     const connect = h("button", {
@@ -78,8 +78,9 @@
         ? "Read access is connected for this account (checklists and child cards via REST)."
         : "Epic remaining time needs one-time read access to load checklist items Trello hides from Power-Ups.";
     }
-    app.appendChild(h("section", { class: "settings" }, [
-      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Epic checklists"),
+    authSection = h("section", { class: "settings" }, [
+      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Epic checklists (once per account)"),
+      h("p", { class: "hint" }, "Click Allow inside this panel (not in a new browser tab). Trello may open a small consent window — that is normal and only happens once."),
       connect,
       disconnect,
       authStatus,
@@ -88,9 +89,12 @@
         h("a", { href: "https://trello.com/my/account", target: "_blank", rel: "noopener noreferrer" }, "account settings"),
         " → Applications."
       ])
-    ]));
+    ]);
     paintAuth().catch(function () {});
   }
+
+  if (authSection) app.appendChild(authSection);
+  app.appendChild(form);
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();

@@ -90,10 +90,11 @@
       if (!needsReadAccess()) return;
       return window.TimeRuntime.isReadAuthorized(t).then(function (authorized) {
         if (authorized) return;
+        // Must not call authorize() here (popup blockers). Open settings iframe; user clicks Allow there.
         return t.popup({
-          title: "Time tracking — one-time read access",
-          url: t.signUrl("./authorize.html"),
-          height: 320
+          title: "Time tracking — one-time setup",
+          url: "./settings.html",
+          height: 420
         });
       });
     },
