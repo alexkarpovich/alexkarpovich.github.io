@@ -109,6 +109,7 @@
     const needsLists = cardList.some(function (card, index) {
       if (states[index].limitMinutes == null) return false;
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
+      if (!(fromClient.childIds && fromClient.childIds.length)) return true;
       return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
     const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };

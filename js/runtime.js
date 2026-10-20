@@ -189,11 +189,14 @@
       return epicApi.inspectChecklists(checklists, cardId, shortLinks, nameIndex);
     }
     let local = inspect();
-    const wantRemote = allowRemote && appKey && epicApi.needsRemoteChecklists(local, checklists);
+    let checklistAuthNeeded = false;
+    const hasKids = local.childIds && local.childIds.length;
+    const wantRemote = allowRemote && appKey && (!hasKids || epicApi.needsRemoteChecklists(local, checklists));
     if (wantRemote) {
       try {
         const rest = await restCredentials(client, appKey);
-        if (rest) {
+        if (!rest) checklistAuthNeeded = true;
+        else {
           checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
           local = inspect();
         }
@@ -207,7 +210,8 @@
       childIds: local.childIds,
       unlinkedCount: local.unlinkedCount,
       unresolvedCount: local.unresolvedCount,
-      checklists: checklists
+      checklists: checklists,
+      checklistAuthNeeded: checklistAuthNeeded
     };
   }
 

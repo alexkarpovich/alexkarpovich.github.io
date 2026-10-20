@@ -301,13 +301,6 @@
 
     function paintEpic(model, settings) {
       clear(epicBody);
-      if (!model.kidsKnown) {
-        epicBody.appendChild(h("p", { class: "hint" }, "Some links or child cards are unavailable. Keep linked cards on this board in open lists, then reopen the card."));
-        if (handlers.canAuthorize) {
-          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
-        }
-        return;
-      }
       if (model.limitMinutes == null) {
         epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
           ? model.children.length + " child cards. Set a limit to see remaining time."
@@ -320,11 +313,23 @@
 
       if (!model.children.length) {
         epicBody.appendChild(h("p", { class: "empty-state" }, "No child cards found in the checklist."));
-        epicBody.appendChild(h("p", { class: "hint" }, "Paste each sub-task card link (trello.com/c/…) into a checklist item. Cards must be on this board in open lists."));
+        if (model.needsChecklistAuth) {
+          epicBody.appendChild(h("p", { class: "hint" }, "Trello did not return checklist items in the Power-Up. Allow read access to load pasted trello.com/c/… links."));
+        } else {
+          epicBody.appendChild(h("p", { class: "hint" }, "Paste each sub-task card link (trello.com/c/…) into a checklist item. Cards must be on this board in open lists."));
+        }
         if (model.unlinkedCount) {
           epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " items have no trello.com/c/ link we could match."));
         }
-        if (!model.kidsKnown && handlers.canAuthorize) {
+        if (model.needsChecklistAuth && handlers.canAuthorize) {
+          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
+        }
+        return;
+      }
+
+      if (!model.kidsKnown) {
+        epicBody.appendChild(h("p", { class: "hint" }, "Some links or child cards are unavailable. Keep linked cards on this board in open lists, then reopen the card."));
+        if (handlers.canAuthorize) {
           epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
         }
         return;

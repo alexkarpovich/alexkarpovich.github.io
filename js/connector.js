@@ -57,7 +57,8 @@
       { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
     );
     if (!inspection.complete) return summary;
-    const kids = inspection.childIds;
+    const kids = inspection.childIds || [];
+    if (!kids.length) return summary;
     const visible = new Set(board.boardCards.map(function (card) { return card.id; }));
     if (kids.some(function (id) { return !visible.has(id); })) return summary;
     summary.spentMinutes = kids.reduce(function (sum, id) {
