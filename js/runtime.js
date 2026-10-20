@@ -190,6 +190,7 @@
     }
     let local = inspect();
     let checklistAuthNeeded = false;
+    let remoteChecklistsFetched = false;
     const hasKids = local.childIds && local.childIds.length;
     const wantRemote = allowRemote && appKey && (!hasKids || epicApi.needsRemoteChecklists(local, checklists));
     if (wantRemote) {
@@ -198,6 +199,8 @@
         if (!rest) checklistAuthNeeded = true;
         else {
           checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
+          remoteChecklistsFetched = true;
+          checklists = await hydrateChecklistItems(checklists, appKey, rest);
           local = inspect();
         }
       } catch (error) { /* Keep the unknown state; never assume missing time is zero. */ }
@@ -211,8 +214,23 @@
       unlinkedCount: local.unlinkedCount,
       unresolvedCount: local.unresolvedCount,
       checklists: checklists,
-      checklistAuthNeeded: checklistAuthNeeded
+      checklistAuthNeeded: checklistAuthNeeded,
+      remoteChecklistsFetched: remoteChecklistsFetched
     };
+  }
+
+  async function hydrateChecklistItems(checklists, appKey, rest) {
+    const lists = Array.isArray(checklists) ? checklists : [];
+    return mapPool(lists, 4, async function (list) {
+      if (!list || !list.id) return list;
+      if (Array.isArray(list.checkItems) && list.checkItems.length) return list;
+      try {
+        const items = await fetchJson("https://api.trello.com/1/checklists/" + encodeURIComponent(list.id) + "/checkItems?fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
+        return Object.assign({}, list, { checkItems: Array.isArray(items) ? items : [] });
+      } catch (error) {
+        return list;
+      }
+    });
   }
 
   return {

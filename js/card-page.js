@@ -237,7 +237,7 @@
       window.TimeEpic
     );
     const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
-    let inspection = await window.TimeRuntime.resolveChecklistInspection(
+    const resolved = await window.TimeRuntime.resolveChecklistInspection(
       t,
       card.id,
       card,
@@ -246,22 +246,36 @@
       window.TimeEpic,
       { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
     );
+    const checklistsForEpic = resolved.checklists || card.checklists;
     shortLinks = await window.TimeRuntime.expandShortLinkMap(
       client,
-      inspection.checklists || card.checklists,
+      checklistsForEpic,
       shortLinks,
       board.rest,
       boardInfo && boardInfo.id,
       window.TimeEpic
     );
-    if (inspection.checklists) {
-      inspection = window.TimeEpic.inspectChecklists(
-        inspection.checklists,
-        card.id,
-        shortLinks,
-        nameIndex
-      );
-    }
+    const parsed = window.TimeEpic.inspectChecklists(
+      checklistsForEpic,
+      card.id,
+      shortLinks,
+      nameIndex
+    );
+    const needsChecklistAuth = !!resolved.checklistAuthNeeded || (
+      !!appKey() &&
+      state.limitMinutes != null &&
+      !board.rest &&
+      (checklistsForEpic.length > 0 || !!(card.checklists && card.checklists.length))
+    );
+    const inspection = {
+      complete: parsed.complete,
+      childIds: parsed.childIds,
+      unlinkedCount: parsed.unlinkedCount,
+      unresolvedCount: parsed.unresolvedCount,
+      checklists: checklistsForEpic,
+      checklistAuthNeeded: needsChecklistAuth,
+      remoteChecklistsFetched: !!resolved.remoteChecklistsFetched
+    };
     // Rendering never writes pluginData: opening a card cannot overwrite a log.
 
     const write = canWriteCard();
@@ -290,8 +304,10 @@
       remainingMinutes: state.limitMinutes != null ? state.limitMinutes - spent : null,
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
       checklistAuthNeeded: !!inspection.checklistAuthNeeded,
-      checklistCount: (inspection.checklists || card.checklists || []).length,
-      checklistItems: checklistDebugItems(inspection.checklists || card.checklists, card.id, shortLinks, nameIndex),
+      authorized: !!board.rest,
+      remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
+      checklistCount: (inspection.checklists || []).length,
+      checklistItems: checklistDebugItems(inspection.checklists, card.id, shortLinks, nameIndex),
       children: children.map(function (child) {
         return { id: child.id, name: child.name, minutes: child.minutes, missing: child.missing };
       })
@@ -307,6 +323,7 @@
       limitMinutes: state.limitMinutes,
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
       needsChecklistAuth: !!inspection.checklistAuthNeeded,
+      remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,
       hasChecklists: !!(inspection.checklists && inspection.checklists.length) || !!(card.checklists && card.checklists.length),
