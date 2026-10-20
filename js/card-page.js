@@ -281,15 +281,14 @@
     const byId = new Map(board.boardCards.map(function (item) { return [item.id, item]; }));
     const children = kids.map(function (id) {
       const info = byId.get(id);
-      const packed = board.timeById.get(id);
-      const decoded = window.TimeModel.decode(packed);
+      const rolled = board.totalsById.get(id);
       return {
         id: id,
         name: info ? info.name : "Unavailable card",
         url: info ? info.url : "",
-        minutes: window.TimeModel.totalMinutes(decoded.entries),
-        entries: decoded.entries,
-        missing: !info || board.unreadableIds.has(id)
+        minutes: rolled ? rolled.minutes : 0,
+        entries: rolled ? rolled.entries : [],
+        missing: !info || !rolled || rolled.missing
       };
     });
 
@@ -298,7 +297,7 @@
     const today = window.TimeDuration.formatYmd(new Date());
     const earliest = dated.length ? dated.map(function (entry) { return window.TimeDuration.ymdString(entry.ymd); }).sort()[0] : today;
     const estimatedFinish = state.limitMinutes != null && dated.length
-      ? window.TimeEpic.estimateFinish(state.limitMinutes - spent, dated, earliest, today, state.settings)
+      ? window.TimeEpic.estimateFinish(state.limitMinutes - spent, dated, earliest, today, settings)
       : "";
     const debugEpic = debugEnabled() ? {
       build: buildLabel(),

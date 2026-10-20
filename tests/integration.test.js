@@ -250,8 +250,7 @@ test("report recovers from an initial failure and does not read inaccessible chi
   fail = false;
   await render();
   assert.equal(app.textContent, "");
-  assert.equal(latest.epics[0].known, false);
-  assert.equal(latest.epics[0].remainingMinutes, null);
+  assert.equal(latest.epics.length, 0, "no readable task activity in this period");
   assert.equal(reads.includes("gone"), false);
 });
 
@@ -375,9 +374,42 @@ test("report requests access for hidden checklist items and computes remaining a
   assert.equal(latest.epics[0].remainingMinutes, 150);
   failed = true;
   await render();
-  assert.equal(latest.epics[0].known, false);
-  assert.equal(latest.epics[0].remainingMinutes, null);
+  assert.equal(latest.epics.length, 0, "no readable task activity in this period");
   assert.match(notice, /totals may be incomplete/);
+});
+
+test("epic card and badges subtract task time nested under a sub-epic", async () => {
+  const rootCard = { id: "epic", checklists: [{ checkItems: [{ idCard: "sub" }] }] };
+  const cards = [
+    { id: "sub", name: "Sub-Epic", checklists: [{ checkItems: [{ idCard: "task" }] }] },
+    { id: "task", name: "Task", checklists: [] }
+  ];
+  const logs = {
+    epic: { lim: 600, e: [] },
+    sub: { lim: 300, e: [["own", 20261020, 999, 0]] },
+    task: { e: [["work", 20261020, 90, 0]] }
+  };
+  const client = {
+    card: async () => rootCard,
+    cards: async () => cards,
+    get: async scope => scope === "board" ? null : logs[scope === "card" ? "epic" : scope]
+  };
+  const h = cardHarness(client);
+  await h.render();
+  assert.equal(h.latest().kidsKnown, true);
+  assert.equal(h.latest().children[0].name, "Sub-Epic");
+  assert.equal(h.latest().children[0].minutes, 90);
+  assert.equal(h.latest().limitMinutes - h.latest().children[0].minutes, 510);
+
+  let capabilities;
+  runPage("connector.js", {
+    parent: {}, location: { href: "https://example.com/index.html" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeBadges: require("../js/badges"),
+    TrelloPowerUp: { initialize: value => { capabilities = value; } }
+  });
+  client.getContext = () => ({ board: "board", card: "epic" });
+  assert.equal((await capabilities["card-badges"](client))[0].text, "1d 30m left");
 });
 
 test("epic badges use remote links and suppress remaining when child logs are unreadable", async t => {

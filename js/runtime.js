@@ -261,7 +261,7 @@
     const empty = Array.isArray(card.checklists) && card.checklists.length === 0;
     const boardCards = empty ? [] : await (opts.cards
       ? opts.cards()
-      : client.cards("id", "name", "url", "shortLink"));
+      : client.cards("id", "name", "url", "shortLink", "checklists"));
     const shortLinks = new Map(boardCards.map(function (item) { return [item.shortLink, item.id]; }));
     const nameIndex = epicApi.uniqueNameIndex(boardCards);
     const inspection = empty
@@ -269,10 +269,58 @@
       : await resolveChecklistInspection(client, card.id, card, true, appKey, epicApi, {
         boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
       });
-    const childIds = new Set(inspection.childIds || []);
-    const board = await loadBoardTimes(client, appKey, modelApi,
-      boardCards.filter(function (item) { return childIds.has(item.id); }),
-      { getRest: getRest, read: opts.read });
+    const byId = new Map(boardCards.map(function (item) { return [item.id, item]; }));
+    const inspections = new Map([[card.id, inspection]]);
+    const timeById = new Map(), unreadableIds = new Set(), seen = new Set([card.id]);
+    let pending = inspection.childIds || [];
+    while (pending.length) {
+      const layer = pending.filter(function (id) {
+        if (seen.has(id) || !byId.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      pending = [];
+      const loaded = await loadBoardTimes(client, appKey, modelApi,
+        layer.map(function (id) { return byId.get(id); }), { getRest: getRest, read: opts.read });
+      loaded.timeById.forEach(function (value, id) { timeById.set(id, value); });
+      loaded.unreadableIds.forEach(function (id) { unreadableIds.add(id); });
+      const nested = await mapPool(layer, 4, async function (id) {
+        const info = byId.get(id), state = modelApi.decode(timeById.get(id));
+        if (state.limitMinutes == null && !(info.checklists && info.checklists.length)) return [];
+        const childInspection = await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
+          boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
+        });
+        inspections.set(id, childInspection);
+        if (childInspection.checklistAuthNeeded) inspection.checklistAuthNeeded = true;
+        return childInspection.childIds || [];
+      });
+      nested.forEach(function (ids) { pending.push.apply(pending, ids); });
+    }
+    function rollup(id, visited, path) {
+      if (path.has(id)) return { minutes: 0, entries: [], missing: true };
+      if (visited.has(id)) return { minutes: 0, entries: [], missing: false };
+      visited.add(id);
+      if (!byId.has(id) || unreadableIds.has(id) || !timeById.has(id)) return { minutes: 0, entries: [], missing: true };
+      const links = inspections.get(id);
+      if (!links) {
+        const entries = modelApi.decode(timeById.get(id)).entries;
+        return { minutes: modelApi.totalMinutes(entries), entries: entries, missing: false };
+      }
+      const nextPath = new Set(path); nextPath.add(id);
+      const result = { minutes: 0, entries: [], missing: !links.complete };
+      (links.childIds || []).forEach(function (childId) {
+        const child = rollup(childId, visited, nextPath);
+        result.minutes += child.minutes;
+        result.entries.push.apply(result.entries, child.entries);
+        result.missing = result.missing || child.missing;
+      });
+      return result;
+    }
+    const totalsById = new Map(), counted = new Set();
+    (inspection.childIds || []).forEach(function (id) {
+      totalsById.set(id, rollup(id, counted, new Set([card.id])));
+    });
+    const board = { timeById: timeById, unreadableIds: unreadableIds, totalsById: totalsById };
     // Only epic/checklist UI needs authorization state; ordinary cards skip it.
     board.rest = empty || opts.authStatus === false ? null : await getRest();
     board.boardCards = boardCards;

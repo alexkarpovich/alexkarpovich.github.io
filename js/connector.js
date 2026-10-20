@@ -53,7 +53,7 @@
     const related = await window.TimeRuntime.loadCardChildren(t, full, appKey(), window.TimeModel, window.TimeEpic, {
       authStatus: false,
       cards: function () {
-        return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink"); });
+        return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink", "checklists"); });
       },
       // Child reads include validation and fallbacks; do not share their result
       // with the raw read used by that child's own badge callback.
@@ -64,9 +64,9 @@
     const kids = inspection.childIds || [];
     if (!kids.length) return summary;
     const visible = new Set(board.boardCards.map(function (card) { return card.id; }));
-    if (kids.some(function (id) { return !visible.has(id) || board.unreadableIds.has(id); })) return summary;
+    if (kids.some(function (id) { return !visible.has(id) || !board.totalsById.has(id) || board.totalsById.get(id).missing; })) return summary;
     summary.spentMinutes = kids.reduce(function (sum, id) {
-      return sum + window.TimeModel.totalMinutes(window.TimeModel.decode(board.timeById.get(id)).entries);
+      return sum + board.totalsById.get(id).minutes;
     }, 0);
     summary.kidsKnown = true;
     return summary;

@@ -203,3 +203,43 @@ test("empty REST checklists do not trigger another request per checklist", async
   assert.equal(result.complete, true);
   assert.deepEqual(result.childIds, []);
 });
+
+test("epic rollups use nested task logs, exclude sub-epic logs and count shared tasks once", async () => {
+  const cards = [
+    { id: "sub", shortLink: "sub", checklists: [{ checkItems: [{ idCard: "task" }, { idCard: "deeper" }] }] },
+    { id: "deeper", shortLink: "deeper", checklists: [{ checkItems: [{ idCard: "task2" }] }] },
+    { id: "task", shortLink: "task", checklists: [] },
+    { id: "task2", shortLink: "task2", checklists: [] },
+    { id: "unrelated", shortLink: "unrelated", checklists: [] }
+  ];
+  const reads = [];
+  const client = {
+    cards: async () => cards,
+    get: async id => {
+      reads.push(id);
+      return { lim: id === "sub" || id === "deeper" ? 600 : undefined,
+        who: [["me", "Me"]], e: [["entry", 20261020, id === "task" ? 90 : id === "task2" ? 30 : 999, 0]] };
+    }
+  };
+  const loaded = await runtime.loadCardChildren(client, {
+    id: "epic", checklists: [{ checkItems: [{ idCard: "sub" }, { idCard: "task" }] }]
+  }, "", model, epic);
+  assert.equal(loaded.board.totalsById.get("sub").minutes, 120);
+  assert.equal(loaded.board.totalsById.get("sub").entries.length, 2);
+  assert.equal(loaded.board.totalsById.get("sub").missing, false);
+  assert.equal(loaded.board.totalsById.get("task").minutes, 0);
+  assert.deepEqual(reads.sort(), ["deeper", "sub", "task", "task2"]);
+});
+
+test("nested missing links and cycles make the epic total unknown", async () => {
+  for (const target of ["unavailable", "epic"]) {
+    const client = {
+      cards: async () => [{ id: "sub", checklists: [{ checkItems: [{ idCard: target }] }] }],
+      get: async () => ({ lim: 600, entries: [] })
+    };
+    const loaded = await runtime.loadCardChildren(client, {
+      id: "epic", checklists: [{ checkItems: [{ idCard: "sub" }] }]
+    }, "", model, epic);
+    assert.equal(loaded.board.totalsById.get("sub").missing, true);
+  }
+});
