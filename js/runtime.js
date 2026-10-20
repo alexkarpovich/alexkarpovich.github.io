@@ -113,12 +113,25 @@
     return raw && typeof raw === "object" ? raw : null;
   }
 
+  function asPromise(value) {
+    return value && typeof value.then === "function" ? value : Promise.resolve(value);
+  }
+
+  // iframe() may return the REST client directly; connector capability handlers get a Promise.
+  function restApi(client) {
+    try {
+      return asPromise(client.getRestApi());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
   async function restCredentials(client, appKey) {
     if (!appKey) return null;
     try {
-      const api = await client.getRestApi();
-      if (!(await api.isAuthorized())) return null;
-      return { appKey: appKey, token: await api.getToken() };
+      const api = await restApi(client);
+      if (!(await asPromise(api.isAuthorized()))) return null;
+      return { appKey: appKey, token: await asPromise(api.getToken()) };
     } catch (error) {
       return null;
     }
@@ -134,15 +147,15 @@
 
   // Start getRestApi().authorize() synchronously from a click handler (no await before authorize).
   function authorizeReadAccess(client) {
-    return client.getRestApi().then(function (api) {
-      return api.authorize({
+    return restApi(client).then(function (api) {
+      return asPromise(api.authorize({
         scope: "read",
         expiration: "never",
         return_url: authorizeReturnUrl()
-      });
+      }));
     }).then(function () {
-      return client.getRestApi().then(function (api) {
-        return api.isAuthorized();
+      return restApi(client).then(function (api) {
+        return asPromise(api.isAuthorized());
       });
     }).then(function (ok) {
       if (!ok) throw new Error("Authorization was not completed.");
@@ -151,8 +164,8 @@
 
   async function isReadAuthorized(client) {
     try {
-      const api = await client.getRestApi();
-      return await api.isAuthorized();
+      const api = await restApi(client);
+      return await asPromise(api.isAuthorized());
     } catch (error) {
       return false;
     }
@@ -281,6 +294,8 @@
     resolveChecklistInspection: resolveChecklistInspection,
     authorizeReadAccess: authorizeReadAccess,
     isReadAuthorized: isReadAuthorized,
+    restApi: restApi,
+    asPromise: asPromise,
     restCredentials: restCredentials
   };
 });

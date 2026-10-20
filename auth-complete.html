@@ -27,8 +27,9 @@
       return;
     }
     t.render(function () {
-      return t.getRestApi().then(function (api) {
-        return api.isAuthorized();
+      return window.TimeRuntime.restApi(t).then(function (api) {
+        var ok = api.isAuthorized();
+        return ok && typeof ok.then === "function" ? ok : Promise.resolve(ok);
       }).then(function (ok) {
         msg.textContent = ok ? "Done. You can return to the board." : "Authorization incomplete. Try Allow again on the board.";
         return t.closePopup().catch(function () {});

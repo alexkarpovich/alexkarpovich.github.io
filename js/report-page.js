@@ -151,9 +151,9 @@
   async function loadRemoteChecklists() {
     if (!appKey()) return { map: null, needsAuth: false };
     try {
-      const api = await t.getRestApi();
-      if (!(await api.isAuthorized())) return { map: null, needsAuth: true };
-      const token = await api.getToken();
+      const api = await window.TimeRuntime.restApi(t);
+      if (!(await window.TimeRuntime.asPromise(api.isAuthorized()))) return { map: null, needsAuth: true };
+      const token = await window.TimeRuntime.asPromise(api.getToken());
       const board = await t.board("id");
       const list = await window.TimeRuntime.fetchJson("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,idCard,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
       const map = new Map();

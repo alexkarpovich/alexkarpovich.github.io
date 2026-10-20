@@ -62,8 +62,8 @@
       onclick: async function () {
         disconnect.disabled = true;
         try {
-          const api = await t.getRestApi();
-          await api.clearToken();
+          const api = await window.TimeRuntime.restApi(t);
+          await window.TimeRuntime.asPromise(api.clearToken());
           await paintAuth();
           authStatus.textContent = "Saved read-access token removed.";
         } catch (err) {
