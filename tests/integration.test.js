@@ -30,6 +30,7 @@ function cardHarness() {
     getContext: () => ({ permissions: { board: writable ? "write" : "read" } }),
     render: callback => { render = callback; },
     card: async () => ({ id: "card", name: "Card", checklists: [] }),
+    board: async () => ({ id: "board" }),
     member: async () => ({ id: "me", fullName: "Me" }),
     get: async (scope, visibility, key, fallback) => {
       if (rejectRead) throw new Error("offline read");

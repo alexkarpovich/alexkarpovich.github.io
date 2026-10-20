@@ -49,6 +49,13 @@ test("reads card id from nested checklist item card objects", function () {
   });
 });
 
+test("extracts trello card links pasted into checklist item text", function () {
+  assert.deepEqual(epic.shortLinksInText("  https://trello.com/c/abc123/4-name  "), ["abc123"]);
+  assert.deepEqual(epic.childIdsFromChecklists([{
+    checkItems: [{ name: "See https://trello.com/c/xyz789/task and done" }]
+  }], "epic", new Map([["xyz789", "child"]])).childIds, ["child"]);
+});
+
 test("ignores host-card idCard and resolves linked child from URL", function () {
   const links = new Map([["abc123", "child"]]);
   const parsed = epic.childIdsFromChecklists([{

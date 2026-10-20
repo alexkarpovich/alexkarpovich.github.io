@@ -72,7 +72,7 @@
     ]);
     const epicSection = h("section", { class: "epic", hidden: true }, [
       h("h2", null, "Epic limit"),
-      h("p", { class: "hint" }, "Remaining = limit minus time on child cards. Time on this epic is excluded."),
+      h("p", { class: "hint" }, "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded."),
       limitForm,
       epicBody
     ]);
@@ -295,7 +295,7 @@
       if (!limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
-      epicSection.hidden = !model.children.length;
+      epicSection.hidden = !(model.children.length || model.limitMinutes != null || model.hasChecklists);
       if (!epicSection.hidden) paintEpic(model, settings);
     }
 
@@ -311,9 +311,21 @@
       if (model.limitMinutes == null) {
         epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
           ? model.children.length + " child cards. Set a limit to see remaining time."
-          : "No linked child cards in checklists. You can still set a limit."));
+          : "Add trello.com/c/… links in the checklist, then set a limit."));
         if (model.unlinkedCount) {
-          epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items are not linked to cards and are ignored."));
+          epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items have no recognizable card link."));
+        }
+        return;
+      }
+
+      if (!model.children.length) {
+        epicBody.appendChild(h("p", { class: "empty-state" }, "No child cards found in the checklist."));
+        epicBody.appendChild(h("p", { class: "hint" }, "Paste each sub-task card link (trello.com/c/…) into a checklist item. Cards must be on this board in open lists."));
+        if (model.unlinkedCount) {
+          epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " items have no trello.com/c/ link we could match."));
+        }
+        if (!model.kidsKnown && handlers.canAuthorize) {
+          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
         }
         return;
       }

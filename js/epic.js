@@ -13,8 +13,46 @@
     return "";
   }
 
+  function normalizeCheckItemText(name) {
+    return String(name || "").replace(/\s+/g, " ").trim();
+  }
+
+  function shortLinksInText(name) {
+    const text = normalizeCheckItemText(name);
+    if (!text) return [];
+    const re = /(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/gi;
+    const out = [];
+    const seen = new Set();
+    let match = re.exec(text);
+    while (match) {
+      const slug = match[1];
+      if (!seen.has(slug)) {
+        seen.add(slug);
+        out.push(slug);
+      }
+      match = re.exec(text);
+    }
+    return out;
+  }
+
+  function collectShortLinksFromChecklists(checklists) {
+    const slugs = [];
+    const seen = new Set();
+    (checklists || []).forEach(function (list) {
+      (list.checkItems || []).forEach(function (item) {
+        shortLinksInText(item && item.name).forEach(function (slug) {
+          if (!seen.has(slug)) {
+            seen.add(slug);
+            slugs.push(slug);
+          }
+        });
+      });
+    });
+    return slugs;
+  }
+
   function checkItemLabel(name) {
-    const raw = String(name || "").trim();
+    const raw = normalizeCheckItemText(name);
     if (!raw) return { title: "", shortLink: "" };
     const markdown = raw.match(/^\[([^\]]*)\]\(\s*(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
     if (markdown) {
@@ -26,11 +64,8 @@
   }
 
   function shortLinkFromCheckItemName(name) {
-    const label = checkItemLabel(name);
-    if (label.shortLink) return label.shortLink;
-    const embedded = String(name || "").match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i)
-      || String(name || "").match(/\]\(\s*(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
-    return embedded ? embedded[1] : "";
+    const links = shortLinksInText(name);
+    return links.length ? links[0] : "";
   }
 
   function resolveCheckItemChildId(item, selfId, shortLinkToId, cardsByName) {
@@ -39,11 +74,18 @@
     // Trello often sets idCard to the host card, not the linked child card.
     if (id === selfId) id = "";
     const label = item && item.name ? checkItemLabel(item.name) : { title: "", shortLink: "" };
-    const slug = !id && item && item.name ? shortLinkFromCheckItemName(item.name) : (label.shortLink || "");
-    if (!id && slug) {
-      if (!shortLinkToId) return { id: "", unresolved: true };
-      id = shortLinkToId.get(slug) || "";
-      if (!id) return { id: "", unresolved: true };
+    if (!id && item && item.name && shortLinkToId) {
+      const slugs = shortLinksInText(item.name);
+      for (let i = 0; i < slugs.length; i += 1) {
+        const mapped = shortLinkToId.get(slugs[i]);
+        if (mapped && mapped !== selfId) {
+          id = mapped;
+          break;
+        }
+      }
+      if (!id && slugs.length) return { id: "", unresolved: true };
+    } else if (!id && item && item.name && shortLinksInText(item.name).length) {
+      return { id: "", unresolved: true };
     }
     if (!id && cardsByName) {
       if (label.title) id = cardsByName.get(label.title.toLowerCase()) || "";
@@ -124,6 +166,8 @@
   return {
     cardIdFromCheckItem: cardIdFromCheckItem,
     checkItemLabel: checkItemLabel,
+    shortLinksInText: shortLinksInText,
+    collectShortLinksFromChecklists: collectShortLinksFromChecklists,
     resolveCheckItemChildId: resolveCheckItemChildId,
     uniqueNameIndex: uniqueNameIndex,
     childIdsFromChecklists: childIdsFromChecklists,

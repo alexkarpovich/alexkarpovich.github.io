@@ -130,6 +130,24 @@
     return null;
   }
 
+  async function expandShortLinkMap(client, checklists, baseMap, rest, boardId, epicApi) {
+    const map = new Map(baseMap || []);
+    if (!rest || !rest.appKey || !rest.token || !epicApi) return map;
+    const slugs = epicApi.collectShortLinksFromChecklists(checklists).filter(function (slug) {
+      return !map.has(slug);
+    });
+    if (!slugs.length) return map;
+    await mapPool(slugs, 4, async function (slug) {
+      try {
+        const card = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(slug) + "?fields=id,idBoard,closed&key=" + encodeURIComponent(rest.appKey) + "&token=" + encodeURIComponent(rest.token));
+        if (card && card.id && !card.closed && (!boardId || card.idBoard === boardId)) {
+          map.set(slug, card.id);
+        }
+      } catch (error) { /* card missing or inaccessible */ }
+    });
+    return map;
+  }
+
   async function loadBoardTimes(client, appKey, modelApi) {
     const boardCards = await client.cards("id", "name", "url", "shortLink");
     const rest = await restCredentials(client, appKey);
@@ -182,6 +200,7 @@
   }
 
   return {
+    expandShortLinkMap: expandShortLinkMap,
     mapPool: mapPool,
     createReader: createReader,
     coalesce: coalesce,

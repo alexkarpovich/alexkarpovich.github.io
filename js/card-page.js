@@ -222,9 +222,18 @@
     currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
     const state = window.TimeModel.decode(raw);
     const board = await window.TimeRuntime.loadBoardTimes(client, appKey(), window.TimeModel);
-    const shortLinks = new Map(board.boardCards.map(function (item) { return [item.shortLink, item.id]; }));
+    let shortLinks = new Map(board.boardCards.map(function (item) { return [item.shortLink, item.id]; }));
+    const boardInfo = await client.board("id").catch(function () { return null; });
+    shortLinks = await window.TimeRuntime.expandShortLinkMap(
+      client,
+      card.checklists,
+      shortLinks,
+      board.rest,
+      boardInfo && boardInfo.id,
+      window.TimeEpic
+    );
     const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
-    const inspection = await window.TimeRuntime.resolveChecklistInspection(
+    let inspection = await window.TimeRuntime.resolveChecklistInspection(
       t,
       card.id,
       card,
@@ -233,10 +242,26 @@
       window.TimeEpic,
       { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
     );
+    shortLinks = await window.TimeRuntime.expandShortLinkMap(
+      client,
+      inspection.checklists || card.checklists,
+      shortLinks,
+      board.rest,
+      boardInfo && boardInfo.id,
+      window.TimeEpic
+    );
+    if (inspection.checklists) {
+      inspection = window.TimeEpic.inspectChecklists(
+        inspection.checklists,
+        card.id,
+        shortLinks,
+        nameIndex
+      );
+    }
     // Rendering never writes pluginData: opening a card cannot overwrite a log.
 
     const write = canWriteCard();
-    const kids = inspection.childIds || [];
+    const kids = (inspection.childIds || []).slice();
     const byId = new Map(board.boardCards.map(function (item) { return [item.id, item]; }));
     const children = kids.map(function (id) {
       const info = byId.get(id);
@@ -277,6 +302,7 @@
       kidsKnown: inspection.complete && !children.some(function (child) { return child.missing; }),
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,
+      hasChecklists: !!(card.checklists && card.checklists.length),
       buildLabel: buildLabel(),
       debugEpic: debugEpic,
       warning: "",
