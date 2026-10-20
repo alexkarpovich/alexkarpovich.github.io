@@ -213,15 +213,17 @@
     if (fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
   }
 
-  async function onAuthorize() {
-    if (!appKey()) throw new Error("No API key in config.js for read access.");
-    await window.TimeRuntime.authorizeReadAccess(t);
-    await refresh();
-    if (current && current.authorized && current.children.length) {
-      t.alert({ message: "Read access granted. Child cards loaded from the checklist.", duration: 4, display: "success" });
-    } else if (current && current.authorized) {
-      t.alert({ message: "Read access granted. Reopen the card if checklist links still do not appear.", duration: 5, display: "info" });
-    }
+  function onAuthorize() {
+    if (!appKey()) return Promise.reject(new Error("No API key in config.js for read access."));
+    return window.TimeRuntime.authorizeReadAccess(t).then(function () {
+      return refresh();
+    }).then(function () {
+      if (current && current.authorized && current.children.length) {
+        t.alert({ message: "Read access granted. Child cards loaded from the checklist.", duration: 4, display: "success" });
+      } else if (current && current.authorized) {
+        t.alert({ message: "Read access granted. Reopen the card if checklist links still do not appear.", duration: 5, display: "info" });
+      }
+    });
   }
 
   async function loadModel(client) {

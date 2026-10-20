@@ -46,7 +46,7 @@ python3 -m http.server 8080 --bind 127.0.0.1
 
 1. Apps Admin → приложение → **Trello Auth** → Generate a new API Key.
 2. Проверить, что `appKey` в [js/config.js](js/config.js) принадлежит именно этому приложению. В репозитории уже есть публичный ключ; для другого приложения его нужно заменить или оставить пустым. Секреты и пользовательские токены туда не помещать.
-3. Настроить Allowed Origins для своего HTTPS origin, например `https://alexkarpovich.github.io`, без пути `/index.html` и без wildcard.
+3. Настроить Allowed Origins для своего HTTPS origin, например `https://alexkarpovich.github.io`, без пути и без wildcard (OAuth возвращает на `auth-complete.html` того же origin).
 4. При первом включении Power-Up откроется **настройки** внутри Trello — нажмите **Allow read access (once)** в этой панели (не открывайте `settings.html` в новой вкладке). Trello один раз покажет окно согласия; дальше токен хранится в аккаунте. То же можно сделать на эпик-карточке или в отчёте. Запрашивается только `read`. [REST-клиент Trello](https://developer.atlassian.com/cloud/trello/power-ups/rest-api-client/).
 
 В настройках есть **Forget saved read access**: удаляет сохранённый SDK-токен. Полное аннулирование разрешения выполняется также в Trello account settings → Applications. При отказе в авторизации основные функции остаются доступными.

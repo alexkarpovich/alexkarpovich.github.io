@@ -76,21 +76,22 @@
     }
     banner.hidden = false;
     banner.appendChild(window.TimeDom.h("span", null, "Allow board read access to compute epic checklist remaining time."));
-    banner.appendChild(window.TimeDom.h("button", {
+    const allowBtn = window.TimeDom.h("button", {
       type: "button",
-      class: "button mod-primary",
-      onclick: async function () {
-        const button = this;
-        button.disabled = true;
-        try {
-          await window.TimeRuntime.authorizeReadAccess(t);
-          await refresh();
-        } catch (error) {
-          notice = error.message || "Could not authorize. Please try again.";
-          renderReport();
-        } finally { button.disabled = false; }
-      }
-    }, "Allow"));
+      class: "button mod-primary"
+    }, "Allow");
+    allowBtn.addEventListener("click", function () {
+      allowBtn.disabled = true;
+      window.TimeRuntime.authorizeReadAccess(t).then(function () {
+        return refresh();
+      }).catch(function (error) {
+        notice = error.message || "Could not authorize. Please try again.";
+        renderReport();
+      }).finally(function () {
+        allowBtn.disabled = false;
+      });
+    });
+    banner.appendChild(allowBtn);
   }
 
   async function loadBoard() {

@@ -43,17 +43,18 @@
     const connect = h("button", {
       type: "button",
       class: "button mod-primary",
-      hidden: true,
-      onclick: async function () {
-        connect.disabled = true;
-        try {
-          await window.TimeRuntime.authorizeReadAccess(t);
-          await paintAuth();
-        } catch (err) {
-          authStatus.textContent = err.message || "Could not authorize.";
-        } finally { connect.disabled = false; }
-      }
+      hidden: true
     }, "Allow read access (once)");
+    connect.addEventListener("click", function () {
+      connect.disabled = true;
+      window.TimeRuntime.authorizeReadAccess(t).then(function () {
+        return paintAuth();
+      }).catch(function (err) {
+        authStatus.textContent = err.message || "Could not authorize.";
+      }).finally(function () {
+        connect.disabled = false;
+      });
+    });
     const disconnect = h("button", {
       type: "button",
       class: "button-link",

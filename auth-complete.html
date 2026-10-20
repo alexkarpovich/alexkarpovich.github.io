@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' https://p.trellocdn.com; object-src 'none'; base-uri 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorization complete</title>
+  <link rel="stylesheet" href="https://p.trellocdn.com/power-up.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="frame trello-power-up">
+  <p id="msg" class="hint">Finishing sign-in…</p>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/runtime.js"></script>
+  <script>
+  (function () {
+    var msg = document.getElementById("msg");
+    if (!window.TrelloPowerUp || !window.TimeRuntime) {
+      msg.textContent = "Sign-in finished. Close this tab and return to your Trello board.";
+      return;
+    }
+    var t = window.TimeRuntime.createIframe(window.TIMETRACK_CONFIG, window.TrelloPowerUp);
+    if (!t) {
+      msg.textContent = "Sign-in finished. Close this tab and return to your Trello board.";
+      return;
+    }
+    t.render(function () {
+      return t.getRestApi().then(function (api) {
+        return api.isAuthorized();
+      }).then(function (ok) {
+        msg.textContent = ok ? "Done. You can return to the board." : "Authorization incomplete. Try Allow again on the board.";
+        return t.closePopup().catch(function () {});
+      }).catch(function () {
+        msg.textContent = "Return to the board and click Allow read access again.";
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

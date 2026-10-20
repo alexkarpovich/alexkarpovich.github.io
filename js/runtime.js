@@ -124,10 +124,29 @@
     }
   }
 
-  async function authorizeReadAccess(client) {
-    const api = await client.getRestApi();
-    await api.authorize({ scope: "read", expiration: "never" });
-    if (!(await api.isAuthorized())) throw new Error("Authorization was not completed.");
+  function authorizeReturnUrl() {
+    try {
+      return new URL("auth-complete.html", window.location.href).href.split("#")[0];
+    } catch (error) {
+      return window.location.origin + "/auth-complete.html";
+    }
+  }
+
+  // Start getRestApi().authorize() synchronously from a click handler (no await before authorize).
+  function authorizeReadAccess(client) {
+    return client.getRestApi().then(function (api) {
+      return api.authorize({
+        scope: "read",
+        expiration: "never",
+        return_url: authorizeReturnUrl()
+      });
+    }).then(function () {
+      return client.getRestApi().then(function (api) {
+        return api.isAuthorized();
+      });
+    }).then(function (ok) {
+      if (!ok) throw new Error("Authorization was not completed.");
+    });
   }
 
   async function isReadAuthorized(client) {
