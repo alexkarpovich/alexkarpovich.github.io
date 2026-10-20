@@ -81,9 +81,9 @@
       const person = who[row[3]] || [];
       const minutes = Math.round(Number(row[2]));
       const ymd = Math.round(Number(row[1]));
-      if (!minutes || minutes < 0 || ymd < 19700101 || ymd > 29991231) return;
+      if (!Number.isSafeInteger(minutes) || minutes <= 0 || !validDate(ymd)) return;
       const note = row[4] && typeof row[4] === "string" ? row[4] : "";
-      const createdAt = row[5] ? normalizeCreatedAt(Number(row[5])) : ymd * 86400000;
+      const createdAt = row[5] ? normalizeCreatedAt(Number(row[5])) : Date.UTC(Math.floor(ymd / 10000), Math.floor(ymd / 100) % 100 - 1, ymd % 100);
       state.entries.push({
         id: String(row[0]),
         ymd: ymd,
@@ -98,8 +98,9 @@
   }
 
   function createEntry(fields) {
+    validateEntry(fields);
     return {
-      id: Math.random().toString(36).slice(2, 8),
+      id: globalThis.crypto.randomUUID(),
       ymd: fields.ymd,
       minutes: fields.minutes,
       memberId: fields.memberId,
@@ -115,65 +116,36 @@
       const tb = b.createdAt || 0;
       if (ta !== tb) return tb - ta;
       if (a.ymd !== b.ymd) return b.ymd - a.ymd;
-      return a.id < b.id ? 1 : -1;
+      return a.id === b.id ? 0 : a.id < b.id ? 1 : -1;
     });
   }
 
-  function mergeSameDay(state) {
-    const map = new Map();
-    const order = [];
-    state.entries.forEach(function (entry) {
-      const key = entry.ymd + "\n" + entry.memberId;
-      const prev = map.get(key);
-      if (!prev) {
-        map.set(key, cloneEntry(entry));
-        order.push(key);
-        return;
-      }
-      prev.minutes += entry.minutes;
-      prev.createdAt = Math.min(prev.createdAt || Date.now(), entry.createdAt || Date.now());
-      if (entry.note && prev.note.indexOf(entry.note) === -1) {
-        prev.note = prev.note ? prev.note + "; " + entry.note : entry.note;
-      }
-    });
-    return {
-      limitMinutes: state.limitMinutes,
-      kids: state.kids ? state.kids.slice() : null,
-      entries: order.map(function (key) {
-        const entry = map.get(key);
-        if (entry.note && entry.note.length > 80) entry.note = entry.note.slice(0, 77) + "...";
-        return entry;
-      })
-    };
-  }
-
-  function stripNotes(state) {
-    return {
-      limitMinutes: state.limitMinutes,
-      kids: state.kids ? state.kids.slice() : null,
-      entries: state.entries.map(function (entry) {
-        const copy = cloneEntry(entry);
-        copy.note = "";
-        return copy;
-      })
-    };
-  }
-
-  function fitState(state) {
-    const attempts = [
-      { state: cloneState(state), warning: null },
-      { state: mergeSameDay(state), warning: "Same-day entries were merged to save space on the card." },
-      { state: stripNotes(mergeSameDay(state)), warning: "Notes were removed from older entries to save space on the card." }
-    ];
-    for (let i = 0; i < attempts.length; i += 1) {
-      const packed = pack(attempts[i].state);
-      if (pluginChars(packed) <= MAX_PLUGIN_CHARS) {
-        return { state: attempts[i].state, packed: packed, warning: attempts[i].warning };
-      }
+  // Never sacrifice existing entries or notes to make a new write fit.
+  function fitState(state, shared) {
+    const packed = pack(state);
+    const size = JSON.stringify(Object.assign({}, shared || {}, { time: packed })).length;
+    if (size <= MAX_PLUGIN_CHARS) {
+      return { state: cloneState(state), packed: packed, warning: null };
     }
-    const error = new Error("This card is out of storage (Trello limit is about 4 KB). Delete old entries.");
+    const error = new Error("This card is out of storage (4096 characters per shared scope). Export your entries before deleting any. Nothing was saved.");
     error.code = "STORAGE_FULL";
     throw error;
+  }
+
+  function validDate(ymd) {
+    if (!Number.isInteger(ymd) || ymd < 19700101 || ymd > 29991231) return false;
+    const year = Math.floor(ymd / 10000);
+    const month = Math.floor(ymd / 100) % 100;
+    const day = ymd % 100;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }
+
+  function validateEntry(fields) {
+    if (!validDate(fields.ymd)) throw new Error("Pick a valid date between 1970 and 2999.");
+    if (!Number.isSafeInteger(fields.minutes) || fields.minutes <= 0 || fields.minutes > 1000000) {
+      throw new Error("Time must be between 1 and 1,000,000 minutes.");
+    }
   }
 
   function isEmpty(state) {
@@ -194,6 +166,7 @@
   }
 
   return {
+    validateEntry: validateEntry,
     MAX_PLUGIN_CHARS: MAX_PLUGIN_CHARS,
     emptyState: emptyState,
     pack: pack,

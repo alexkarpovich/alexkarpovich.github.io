@@ -1,6 +1,7 @@
 (function () {
-  if (!window.TrelloPowerUp) return;
+  if (window.parent === window || !window.TrelloPowerUp) return;
 
+  const read = window.TimeRuntime.createReader(8);
   const icon = new URL("img/icon.svg", window.location.href).href;
 
   function openCard(t) {
@@ -21,9 +22,13 @@
   }
 
   async function summaryFor(t) {
-    const settings = window.TimeDuration.normalizeSettings(await t.get("board", "shared", "settings", null));
-    const card = await t.card("id");
-    const state = window.TimeModel.decode(await t.get(card.id, "shared", "time", null));
+    const ctx = t.getContext();
+    const [rawSettings, raw] = await Promise.all([
+      read(ctx.board + ":settings", function () { return t.get("board", "shared", "settings", null); }),
+      read(ctx.board + ":" + ctx.card, function () { return t.get("card", "shared", "time", null); })
+    ]);
+    const settings = window.TimeDuration.normalizeSettings(rawSettings);
+    const state = window.TimeModel.decode(raw);
     const summary = {
       settings: settings,
       ownMinutes: window.TimeModel.totalMinutes(state.entries),
@@ -33,12 +38,23 @@
     };
     if (state.limitMinutes == null) return summary;
     const full = await t.card("id", "checklists");
-    const inspection = window.TimeEpic.inspectChecklists(full.checklists, full.id, null);
-    const kids = inspection.complete ? inspection.childIds : state.kids;
-    if (!Array.isArray(kids)) return summary;
-    const times = await Promise.all(kids.map(function (id) {
-      return t.get(id, "shared", "time", null);
-    }));
+    let inspection = window.TimeEpic.inspectChecklists(full.checklists, full.id, null);
+    let boardCards;
+    if (inspection.unresolvedCount || (inspection.childIds && inspection.childIds.length)) {
+      boardCards = await read(ctx.board + ":cards", function () { return t.cards("id", "shortLink"); });
+      const links = new Map(boardCards.map(function (card) { return [card.shortLink, card.id]; }));
+      inspection = window.TimeEpic.inspectChecklists(full.checklists, full.id, links);
+    }
+    if (!inspection.complete) return summary;
+    const kids = inspection.childIds;
+    const visible = new Set((boardCards || []).map(function (card) { return card.id; }));
+    if (kids.some(function (id) { return !visible.has(id); })) return summary;
+    let times;
+    try {
+      times = await Promise.all(kids.map(function (id) {
+        return read(ctx.board + ":" + id, function () { return t.get(id, "shared", "time", null); });
+      }));
+    } catch (error) { return summary; }
     summary.spentMinutes = times.reduce(function (sum, raw) {
       return sum + window.TimeModel.totalMinutes(window.TimeModel.decode(raw).entries);
     }, 0);
@@ -101,18 +117,5 @@
     }
   };
 
-  const config = window.TIMETRACK_CONFIG || {};
-  try {
-    if (config.appKey) {
-      window.TrelloPowerUp.initialize(capabilities, {
-        appKey: config.appKey,
-        appName: config.appName || "Time Tracking",
-        appAuthor: config.appAuthor || "Time Tracking"
-      });
-    } else {
-      window.TrelloPowerUp.initialize(capabilities);
-    }
-  } catch (error) {
-    // Opening the connector URL in a browser tab is the install page, not a Trello iframe.
-  }
+  window.TrelloPowerUp.initialize(capabilities, window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
 })();

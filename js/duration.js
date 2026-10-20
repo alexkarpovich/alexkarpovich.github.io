@@ -56,7 +56,7 @@
       const mins = Number(clock[2]);
       if (mins >= 60 || hours < 0) return { ok: false, error: PARSE_ERROR };
       const minutes = hours * 60 + mins;
-      if (minutes <= 0) return { ok: false, error: PARSE_ERROR };
+      if (!Number.isSafeInteger(minutes) || minutes <= 0 || minutes > 1000000) return { ok: false, error: PARSE_ERROR };
       return { ok: true, minutes: minutes };
     }
 

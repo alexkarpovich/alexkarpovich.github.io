@@ -175,3 +175,27 @@ test("excel export escapes text and keeps numeric minutes", function () {
   assert.match(xml, /ss:Type="Number">970</);
   assert.match(xml, /Over limit|Within limit/);
 });
+
+test("unresolved Trello URLs are unknown, not zero-time children", function () {
+  const lists = [{ checkItems: [{ name: "[Child](https://trello.com/c/abc123/title)" }] }];
+  assert.equal(epic.inspectChecklists(lists, "epic").complete, false);
+  assert.deepEqual(epic.inspectChecklists(lists, "epic", new Map([["abc123", "child"]])).childIds, ["child"]);
+  assert.deepEqual(epic.inspectChecklists([{ checkItems: [{ name: "https://eviltrello.com/c/abc123" }] }], "epic").childIds, []);
+});
+
+test("unavailable children cannot produce an optimistic epic remainder", function () {
+  const cards = fixture();
+  cards[0].kids.push("missing");
+  const result = aggregate.buildReport(cards, { from: "2026-10-01", to: "2026-10-31" });
+  assert.equal(result.epics[0].known, false);
+  assert.equal(result.epics[0].remainingMinutes, null);
+});
+
+test("Excel headers are strings and control characters cannot break XML", function () {
+  const result = aggregate.buildReport(fixture(), { from: "2026-10-01", to: "2026-10-31" });
+  result.entries[0].note = "bad\u0000text\u000b!";
+  const xml = excel.buildWorkbook(result, duration.formatDuration, {});
+  assert.doesNotMatch(xml, /NaN|[\u0000\u000b]/);
+  assert.match(xml, /ss:Type="String">Minutes</);
+  assert.match(xml, /badtext!/);
+});

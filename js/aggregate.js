@@ -22,8 +22,8 @@
   }
 
   function cardMatchesLabels(card, labelIds) {
-    if (!labelIds || !labelIds.length) return true;
-    const selected = new Set(labelIds);
+    if (!labelIds || (labelIds instanceof Set ? !labelIds.size : !labelIds.length)) return true;
+    const selected = labelIds instanceof Set ? labelIds : new Set(labelIds);
     const labels = card.labels || [];
     if (selected.has("none") && labels.length === 0) return true;
     return labels.some(function (label) { return selected.has(label.id); });
@@ -47,7 +47,7 @@
   function buildReport(cards, filters) {
     const from = filters.from;
     const to = filters.to;
-    const labelIds = filters.labelIds || [];
+    const labelIds = new Set(filters.labelIds || []);
     const memberIds = filters.memberIds || [];
     const memberFilter = new Set(memberIds);
     const byId = new Map();
@@ -166,15 +166,16 @@
           missing: !child || !!child.missing
         };
       });
+      const known = !children.some(function (child) { return child.missing; });
       return {
         cardId: card.id,
         cardName: card.name,
         cardUrl: card.url || "",
         labels: card.labels || [],
         limitMinutes: card.limitMinutes,
-        spentMinutes: spent,
-        remainingMinutes: card.limitMinutes - spent,
-        known: true,
+        spentMinutes: known ? spent : null,
+        remainingMinutes: known ? card.limitMinutes - spent : null,
+        known: known,
         children: children
       };
     }).sort(function (a, b) { return a.cardName.localeCompare(b.cardName, "en"); });

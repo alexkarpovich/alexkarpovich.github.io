@@ -1,41 +1,96 @@
 # Time Tracking for Trello
 
-Log time on cards and run board reports. Static pages — free on GitHub Pages. No backend; data is stored in Trello.
+Статический Power-Up для учёта времени: записи на карточках, бейджи, отчёт по доске, фильтры по датам/меткам/авторам, экспорт в Excel XML и лимиты эпиков. Данные хранятся в Trello; отдельного backend и npm-зависимостей нет.
 
-UI preview without a board: [preview.html](preview.html).
+Инструкция сверена с официальной документацией **20 октября 2026**. Публикация файлов на хостинге и публикация Power-Up в каталоге Trello — отдельные действия.
 
-## Features
+## Локальная проверка
 
-- Log time on cards: `30m`, `1h`, `1h 40m`, `1d`, `1w`, `1:40` (Russian units also supported).
-- Author, date, and comment per entry. New entries use today and the current member.
-- Card badges and card back section.
-- Board report with period presets (this week by default), label and author filters, Excel export.
-- Epic time limit on a card with checklist child cards; remaining time from child logs.
-- Configurable work day (`1d`) and work week (`1w`).
+Нужен Node.js 22 или новее. Устанавливать зависимости не требуется:
 
-## GitHub Pages
+```sh
+npm test
+python3 -m http.server 8080 --bind 127.0.0.1
+```
 
-1. Push to public branch `main`.
-2. Settings → Pages → Deploy from branch → `main` → `/ (root)`.
-3. Create a Power-Up at [Trello Power-Up admin](https://trello.com/power-ups/admin).
-4. Iframe connector URL: `https://USER.github.io/REPO/index.html`.
-5. Enable: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings.
-6. Add the Power-Up to a board.
+Открыть `http://127.0.0.1:8080/preview.html`. Это демонстрация с данными только в памяти вкладки, без подключения к Trello. `preview.html?selftest=1` выполняет встроенную проверку интерфейса; демонстрационные даты относятся к октябрю 2026.
 
-## Usage
+Автотесты проверяют формат времени, сериализацию, переполнение без потери данных, эпики, отчёт и XML, а также работу контроллера карточки с имитацией SDK: успешное/неудачное сохранение, повторную отправку, права доступа и ошибки обновления после записи. Реальная авторизация, сообщения между iframe и Trello и совместная работа требуют проверки на доске.
 
-On the card back: enter **Time** and **Comment**, press Enter or the + button.
+## Установка на реальную доску
 
-**Time report** on the board opens the summary. **Download Excel** exports the current filters.
+1. Разместить файлы проекта на доступном HTTPS-хостинге. Для GitHub Pages: Settings → Pages → Deploy from a branch → нужная ветка → `/ (root)`. В проекте уже есть `.nojekyll`; сборка не нужна. Проверить успешный deployment и открытие `index.html`, `card.html`, `report.html`, `settings.html` и `js/runtime.js` без 404. [Документация GitHub](https://docs.github.com/en/pages/quickstart).
+2. Текущий `origin` проекта — `alexkarpovich/alexkarpovich.github.io`. При публикации корня этого репозитория без custom domain ожидаемый connector URL: **`https://alexkarpovich.github.io/index.html`**. Для обычного project repository адрес имеет вид `https://USER.github.io/REPO/index.html`. Фактический адрес проверить в Settings → Pages.
+3. В [Trello Apps Admin](https://trello.com/apps/admin) нажать **New**, выбрать использование Power-Up capabilities, указать имя, Workspace, email, автора и **Iframe Connector URL**. При первом входе портал запрашивает Joint Development Agreement. [Настройка приложения](https://developer.atlassian.com/cloud/trello/guides/power-ups/managing-apps/).
+4. Во вкладке **Capabilities** включить ровно эти обработчики:
 
-For epics, link child cards via checklist (Convert to card or `trello.com/c/...` URL), then set a limit on the epic.
+   | Название | Код |
+   | --- | --- |
+   | Board buttons | `board-buttons` |
+   | Card back section | `card-back-section` |
+   | Card badges | `card-badges` |
+   | Card detail badges | `card-detail-badges` |
+   | Card buttons | `card-buttons` |
+   | Show settings | `show-settings` |
 
-Settings (work day/week): Power-Up menu on the board → gear icon.
+5. Открыть тестовую доску **в том же Workspace**, добавить Power-Up через меню Power-Ups (раздел Custom/пользовательских Power-Ups), затем перезагрузить доску. Приватный Power-Up доступен на досках выбранного Workspace; публичное ревью для этой проверки не нужно. [Руководство Trello](https://developer.atlassian.com/cloud/trello/guides/power-ups/building-a-power-up-part-one/).
+6. На карточке появятся кнопка **Time** и секция **Time tracking**; на доске — **Time report**. Самостоятельное открытие `card.html` не проверяет интеграцию: странице нужен контекст iframe Trello.
 
-## API key (optional)
+Для разработки лучше отдельный Power-Up и staging URL: изменения production-файлов затрагивают пользователей установленного Power-Up. После обновления перезагрузить доску; при диагностике включить Disable cache в DevTools.
 
-Without `appKey` in `js/config.js`, logging and reports work. The key helps load checklist links for epic remaining time when Trello omits check items in bulk reads.
+## API key и авторизация эпиков
 
-## Limits
+Обычные записи и отчёт работают без REST-авторизации. Для получения отсутствующих checklist items используется дополнительный read-доступ:
 
-~4 KB of shared data per card. If full, same-day entries may merge or notes drop; minutes are kept.
+1. Apps Admin → приложение → **Trello Auth** → Generate a new API Key.
+2. Проверить, что `appKey` в [js/config.js](js/config.js) принадлежит именно этому приложению. В репозитории уже есть публичный ключ; для другого приложения его нужно заменить или оставить пустым. Секреты и пользовательские токены туда не помещать.
+3. Настроить Allowed Origins для своего HTTPS origin, например `https://alexkarpovich.github.io`, без пути `/index.html` и без wildcard.
+4. В эпике/отчёте нажать **Allow read access / Allow**. Запрашивается только `read`; логирование через `t.set` не требует REST write-доступа. API-параметры передаются и в connector, и в дочерние iframe. [REST-клиент Trello](https://developer.atlassian.com/cloud/trello/power-ups/rest-api-client/).
+
+В настройках есть **Forget saved read access**: удаляет сохранённый SDK-токен. Полное аннулирование разрешения выполняется также в Trello account settings → Applications. При отказе в авторизации основные функции остаются доступными.
+
+## Что проверить на реальной доске
+
+| Сценарий | Ожидаемый результат |
+| --- | --- |
+| `30m`, `1h 40m`, `1:40`, `1д`, некорректный ввод | Верные минуты; ошибка не создаёт запись |
+| Добавление → повторное добавление → редактирование → удаление | Кнопки разблокируются, суммы и бейджи обновляются |
+| Двойное нажатие Save / Enter | Одна запись в одном iframe |
+| Участник A и участник B | Каждый видит общий журнал; UI позволяет менять собственные записи |
+| Наблюдатель / посетитель публичной доски | Нет возможности записи; читаемый интерфейс |
+| Эпик с лимитом `2h`; дети с `30m` и `45m` | Остаток `45m`; время самого эпика не вычитается |
+| Дети через Convert to card и `https://trello.com/c/...` | Ссылки разрешаются, дубликаты не учитываются повторно |
+| Удалённый, архивный или перенесённый ребёнок; checklist items недоступны | Не показывается недостоверный положительный остаток |
+| API key пустой, токен отсутствует, отказ/отзыв разрешения | Основной учёт доступен; неизвестные расчёты явно обозначены |
+| Период, автор и метка; пустой/обратный диапазон | Верные суммы; некорректный диапазон блокирует экспорт |
+| Экспорт | Excel открывает `.xml`, три листа, числовые минуты, нет `NaN` |
+| Отказ сети при сохранении и при обновлении после записи | Форма разблокируется; успешная запись не выдаётся за неуспешную |
+| Заполнение карточки длинными комментариями | Переполнение отклоняет сохранение, старые комментарии не исчезают |
+| Светлая/тёмная тема, узкий popup, клавиатура | Читаемые поля, видимые ошибки, корректный размер iframe |
+| Большая доска (например, 500 карточек) | Проверить Network/Performance и отсутствие таймаутов возможностей |
+| Две вкладки сохраняют на одной карточке одновременно | Проверить известное ограничение неатомарного shared storage |
+
+В DevTools выбрать iframe Power-Up, проверить Console и Network. Типовые причины: ошибочный connector URL, 404, выключенная capability, доска другого Workspace, Allowed Origins, блокировка auth popup. Заголовки хостинга не должны запрещать встраивание в Trello (`X-Frame-Options: DENY/SAMEORIGIN` этому мешает).
+
+## Публикация для всех пользователей
+
+1. Завершить проверку на реальных досках и стабильном HTTPS-хостинге.
+2. Заполнить карточку приложения: Overview, Description, иконку, категории, автора, контактный **Support Email**, доступную **Privacy Policy**; подготовить скриншоты и понятные инструкции тестировщику. Проверить [Public Power-Up Guidelines](https://developer.atlassian.com/cloud/trello/guides/power-ups/public-power-up-guidelines/), включая бренд, скорость и разрешения.
+3. В Privacy and Compliance честно описать сохранение member ID, имени автора и комментариев в shared pluginData; отдельно учесть экспортируемые файлы и логи хостинга. Не заявлять «персональные данные не обрабатываются». Требования описаны в [Personal Data Storage](https://developer.atlassian.com/cloud/trello/guides/compliance/personal-data-storage-gdpr/).
+4. Подготовить Power-Up ID из URL страницы администрирования и connector URL; отправить заявку через [Trello developer support](https://go.trello.com/dev-support).
+5. Пройти review, исправить замечания и согласовать запуск. Документация указывает ориентир **две недели или больше**, без гарантии срока. После одобрения Trello включает публичную доступность; каталог использует адрес `https://trello.com/power-ups/POWER_UP_ID`. [Официальная процедура](https://developer.atlassian.com/cloud/trello/guides/power-ups/submitting-your-power-up/).
+
+В репозитории пока нет готовой Privacy Policy с реквизитами владельца, контактной информации для поддержки и материалов листинга. Их необходимо подготовить перед заявкой. Локальная оптимизация не означает одобрение Trello или уже выполненную публикацию.
+
+## Архитектура и ограничения
+
+- `model.js` хранит совместимый компактный формат `time`; существующие записи читаются без миграции. Новые ID используют UUID. Лишний кэш дочерних карточек не сохраняется: связи рассчитываются по актуальным checklist items.
+- `runtime.js` ограничивает параллелизм и объединяет только незавершённые чтения; завершённые результаты не кэшируются. Повторные уведомления `t.render` сводятся к последовательным обновлениям. Фильтрация отчёта выполняется в памяти без новых запросов.
+- Контрольный тест для 100 обычных карточек и 200 одновременных badge/detail-badge callbacks: **101 вызов `t.get` вместо 400**, до 8 одновременно. Это тест с имитацией SDK, а не измерение времени на сервере Trello.
+- Просмотр не изменяет pluginData. Ошибки записи и ошибки обновления после успешной записи различаются. При переполнении ничего не объединяется и не удаляется автоматически.
+- Trello ограничивает каждую пару scope/visibility **4096 символами**; код оставляет запас, ограничивая JSON до 4000 и учитывая другие ключи того же shared scope. Это не 4 KB в UTF-8. Shared writes неатомарны: защита в одном iframe не устраняет перезапись при одновременной работе нескольких вкладок/пользователей. [Ограничения хранилища](https://developer.atlassian.com/cloud/trello/power-ups/client-library/getting-and-setting-data/).
+- Для больших журналов, гарантированной совместной записи и серверного контроля авторства нужен backend с транзакциями. Деление данных на другие ключи того же scope не увеличивает лимит. Экспорт полезен как копия, но импорт/восстановление здесь не реализованы.
+- Отчёт использует только видимые карточки открытых списков; архивные не включаются. Если ребёнок эпика недоступен, полный остаток неизвестен. [Семантика `t.cards`](https://developer.atlassian.com/cloud/trello/power-ups/client-library/accessing-trello-data/).
+- Записи общие для всех, кто видит доску; на публичной доске они публичны. «Только свои записи» — ограничение интерфейса, не серверная ACL. Не хранить секреты в комментариях. Публичный appKey допустим, пользовательский token — нет. [Security](https://developer.atlassian.com/cloud/trello/guides/power-ups/security/).
+- HTML включает CSP для скриптов и no-referrer; пользовательский текст выводится через text nodes. Дальнейшие HTTP-заголовки, TLS, HSTS и возможность встраивания зависят от хостинга и проверяются при развёртывании.
+- Экспорт — **SpreadsheetML 2003 XML**, не бинарный `.xls` и не `.xlsx`; расширение `.xml` соответствует содержимому. Формулы из комментариев экранируются, недопустимые XML control characters удаляются.

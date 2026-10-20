@@ -81,7 +81,9 @@
     paintCard();
   });
 
+  const fixedToday = new Date(2026, 9, 19);
   const cardView = window.TimeCardView.mount(document.getElementById("card-app"), {
+    today: function () { return fixedToday; },
     settings: function () { return settings; },
     canAuthorize: false,
     onAdd: function (fields) {
@@ -129,7 +131,6 @@
     onAuthorize: function () { return Promise.resolve(); }
   });
 
-  const fixedToday = new Date(2026, 9, 19);
   const reportView = window.TimeReportView.mount(document.getElementById("report-app"), {
     today: function () { return fixedToday; },
     settings: function () { return settings; },
@@ -138,7 +139,7 @@
       const current = currentReport();
       current.labelText = window.TimeAggregate.labelText;
       const xml = window.TimeExcel.buildWorkbook(current, window.TimeDuration.formatDuration, settings);
-      window.TimeDom.download("uchet-vremeni-" + current.from + "_" + current.to + ".xls", xml);
+      window.TimeDom.download("uchet-vremeni-" + current.from + "_" + current.to + ".xml", xml, "application/xml;charset=utf-8");
     }
   });
 

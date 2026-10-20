@@ -4,10 +4,12 @@
     app.textContent = "Open settings from the Power-Up menu on the board.";
     return;
   }
-  const t = window.TrelloPowerUp.iframe();
+  const t = window.TrelloPowerUp.iframe(window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
   window.TimeTheme.bind(t);
   const h = window.TimeDom.h;
   let ready = false;
+  let saving = false;
+  const canWrite = t.getContext().permissions && t.getContext().permissions.board === "write";
 
   const hours = h("input", { type: "number", min: "1", max: "24", required: "true", id: "hours" });
   const days = h("input", { type: "number", min: "1", max: "7", required: "true", id: "days" });
@@ -24,14 +26,45 @@
     h("p", { class: "hint" }, "1d and 1w in entries and reports use these values. Already saved minutes are not rewritten."),
     h("p", { class: "hint" }, window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey
       ? "API key is set: epic checklists can be read directly."
-      : "No API key. Logging and reports work. For reliable checklist reads, set appKey in js/config.js."),
+      : "Basic time tracking works without extra authorization."),
     error,
     button
   ]);
   app.appendChild(form);
+  button.disabled = !canWrite;
+  if (!canWrite) error.textContent = "This board is read-only.";
+
+  if (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) {
+    const authStatus = h("p", { class: "hint", role: "status" });
+    const disconnect = h("button", {
+      type: "button",
+      class: "button-link",
+      onclick: async function () {
+        disconnect.disabled = true;
+        try {
+          const api = await t.getRestApi();
+          await api.clearToken();
+          authStatus.textContent = "Saved read-access token removed. You can authorize again from an epic or report.";
+        } catch (err) {
+          authStatus.textContent = err.message || "Could not disconnect.";
+        } finally { disconnect.disabled = false; }
+      }
+    }, "Forget saved read access");
+    app.appendChild(h("section", { class: "settings" }, [
+      disconnect,
+      authStatus,
+      h("p", { class: "hint" }, [
+        "To revoke the authorization at Trello as well, open ",
+        h("a", { href: "https://trello.com/my/account", target: "_blank", rel: "noopener noreferrer" }, "your Trello account settings"),
+        " and remove it under Applications."
+      ])
+    ]));
+  }
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
+    if (!canWrite || saving) return;
+    saving = true;
     const next = window.TimeDuration.normalizeSettings({
       hoursPerDay: hours.value,
       daysPerWeek: days.value,
@@ -41,7 +74,8 @@
     t.set("board", "shared", "settings", next).then(function () {
       return t.closePopup();
     }).catch(function (err) {
-      button.disabled = false;
+      saving = false;
+      button.disabled = !canWrite;
       error.textContent = err.message || "Could not save settings.";
     });
   });
@@ -54,7 +88,7 @@
       days.value = String(settings.daysPerWeek);
       week.value = String(settings.weekStartsOn);
       ready = true;
-      t.sizeTo("#app");
-    });
+      return t.sizeTo("#app");
+    }).catch(function (err) { error.textContent = err.message || "Could not load settings."; });
   });
 })();

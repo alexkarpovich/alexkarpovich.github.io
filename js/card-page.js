@@ -5,12 +5,13 @@
   let saving = false;
   let current = null;
   let currentMember = null;
+  const refresh = window.TimeRuntime.coalesce(reload);
 
   if (window.parent === window || !window.TrelloPowerUp) {
     app.textContent = "Open this page from a Trello card.";
     return;
   }
-  t = window.TrelloPowerUp.iframe();
+  t = window.TrelloPowerUp.iframe(window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
   window.TimeTheme.bind(t);
 
   boot().catch(function (error) {
@@ -41,11 +42,29 @@
       onLimit: onLimit,
       onAuthorize: onAuthorize
     });
+    if (window.ResizeObserver) {
+      let queued = false;
+      new window.ResizeObserver(function () {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(function () {
+          queued = false;
+          t.sizeTo("#app").catch(function () {});
+        });
+      }).observe(app);
+    }
     t.render(function () {
-      return reload().catch(function (error) {
+      return refresh().catch(function (error) {
         if (current) {
           current.error = error.message || "Could not refresh the card.";
           view.update(current);
+        } else {
+          let status = document.getElementById("load-error");
+          if (!status) {
+            status = window.TimeDom.h("p", { id: "load-error", class: "error", role: "alert" });
+            app.prepend(status);
+          }
+          status.textContent = error.message || "Could not load the card. Reopen it to retry.";
         }
       });
     });
@@ -53,12 +72,16 @@
 
   async function reload() {
     const loaded = await loadModel(t);
+    const status = document.getElementById("load-error");
+    if (status) status.remove();
     current = loaded;
     view.update(loaded);
-    requestAnimationFrame(function () { t.sizeTo("#app"); });
+    requestAnimationFrame(function () { t.sizeTo("#app").catch(function () {}); });
   }
 
   async function withSaving(work) {
+    if (saving) throw new Error("Please wait for the current save.");
+    if (!canWriteCard()) throw new Error("This board is read-only.");
     saving = true;
     if (current && view) {
       current.saving = true;
@@ -66,9 +89,17 @@
     }
     try {
       await work();
-      await reload();
+      // A successful write must not be reported as failed if the refresh fails:
+      // otherwise retrying Add would create a duplicate entry.
+      try { await refresh(); } catch (error) {
+        if (current) current.error = "Saved, but refresh failed. Reopen the card to see the latest data.";
+      }
     } finally {
       saving = false;
+      if (current && view) {
+        current.saving = false;
+        view.update(current);
+      }
     }
   }
 
@@ -103,6 +134,7 @@
       return mutate(function (state) {
         const entry = window.TimeModel.findEntry(state, fields.id);
         assertAuthor(entry);
+        window.TimeModel.validateEntry(fields);
         entry.minutes = fields.minutes;
         entry.ymd = fields.ymd;
         entry.note = fields.note;
@@ -135,19 +167,16 @@
 
   async function mutate(change) {
     const card = await t.card("id");
-    const state = window.TimeModel.decode(await t.get(card.id, "shared", "time", null));
+    const shared = await t.get(card.id, "shared");
+    const state = window.TimeModel.decode(shared && shared.time);
     const next = change(state);
-    if (next.limitMinutes != null) {
-      const inspection = await readChildren(card.id);
-      if (inspection.complete) next.kids = inspection.childIds;
-    } else {
-      next.kids = null;
-    }
+    // Relationships come from checklists, not a stale duplicate in pluginData.
+    next.kids = null;
     if (window.TimeModel.isEmpty(next)) {
       await t.remove(card.id, "shared", "time");
       return;
     }
-    const fit = window.TimeModel.fitState(next);
+    const fit = window.TimeModel.fitState(next, shared);
     await t.set(card.id, "shared", "time", fit.packed);
     if (fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
   }
@@ -155,49 +184,22 @@
   async function onAuthorize() {
     const api = await t.getRestApi();
     await api.authorize({ scope: "read", expiration: "never" });
-    await reload();
+    await refresh();
   }
 
   async function loadModel(client) {
-    const settings = window.TimeDuration.normalizeSettings(await client.get("board", "shared", "settings", null));
-    const card = await client.card("id", "name", "checklists");
-    let member = null;
-    try {
-      member = await client.member("id", "fullName", "username");
-    } catch (error) {
-      member = null;
-    }
-    currentMember = member ? {
-      id: member.id,
-      name: member.fullName || member.username || "You"
-    } : null;
-
-    const board = await client.board("members");
-    let state = window.TimeModel.decode(await client.get(card.id, "shared", "time", null));
-    state.entries = window.TimeModel.sortEntries(state.entries);
-
-    let inspection = window.TimeEpic.inspectChecklists(card.checklists, card.id, null);
-    if (!inspection.complete) inspection = await readChildren(card.id);
-    if (inspection.complete) state.kids = inspection.childIds;
-    if (state.limitMinutes != null && inspection.complete) {
-      const saved = window.TimeModel.decode(await client.get(card.id, "shared", "time", null));
-      if (!window.TimeEpic.sameIds(saved.kids, inspection.childIds)) {
-        try {
-          const fit = window.TimeModel.fitState(state);
-          state = fit.state;
-          await client.set(card.id, "shared", "time", fit.packed);
-        } catch (error) {
-          // Read-only members still see the fresh child list for this session.
-        }
-      }
-    }
-
-    const members = ((board && board.members) || []).map(function (person) {
-      return { id: person.id, name: person.fullName || person.username || "Unnamed" };
-    });
-    if (member && !members.some(function (person) { return person.id === member.id; })) {
-      members.unshift({ id: member.id, name: member.fullName || member.username || "You" });
-    }
+    const [rawSettings, card, member, raw] = await Promise.all([
+      client.get("board", "shared", "settings", null),
+      client.card("id", "name", "checklists"),
+      client.member("id", "fullName", "username").catch(function () { return null; }),
+      client.get("card", "shared", "time", null)
+    ]);
+    const settings = window.TimeDuration.normalizeSettings(rawSettings);
+    currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
+    const state = window.TimeModel.decode(raw);
+    const inspection = await readChildren(card.id, card, state.limitMinutes != null);
+    // Rendering never writes pluginData: opening a card cannot overwrite a log.
+    state.kids = inspection.complete ? inspection.childIds : null;
 
     const write = canWriteCard();
     const kids = state.kids || [];
@@ -207,17 +209,20 @@
     if (state.limitMinutes != null && kids.length) {
       const boardCards = await client.cards("id", "name", "url");
       const byId = new Map(boardCards.map(function (item) { return [item.id, item]; }));
-      const childTimes = await mapPool(kids, 8, function (id) {
-        return client.get(id, "shared", "time", null);
+      const childTimes = await window.TimeRuntime.mapPool(kids, 8, async function (id) {
+        if (!byId.has(id)) return null;
+        try { return { raw: await client.get(id, "shared", "time", null) }; }
+        catch (error) { return null; }
       });
       children = kids.map(function (id, index) {
         const info = byId.get(id);
-        const decoded = window.TimeModel.decode(childTimes[index]);
+        const decoded = window.TimeModel.decode(childTimes[index] && childTimes[index].raw);
         return {
           id: id,
           name: info ? info.name : "Unavailable card",
           url: info ? info.url : "",
-          minutes: window.TimeModel.totalMinutes(decoded.entries)
+          minutes: window.TimeModel.totalMinutes(decoded.entries),
+          missing: !info || !childTimes[index]
         };
       });
     }
@@ -225,13 +230,12 @@
     return {
       cardId: card.id,
       settings: settings,
-      members: members,
       currentMemberId: currentMember ? currentMember.id : "",
       canWrite: write,
       canAdd: write && !!currentMember,
       entries: state.entries,
       limitMinutes: state.limitMinutes,
-      kidsKnown: inspection.complete || Array.isArray(state.kids),
+      kidsKnown: inspection.complete && !children.some(function (child) { return child.missing; }),
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,
       warning: "",
@@ -242,36 +246,25 @@
     };
   }
 
-  async function readChildren(cardId) {
-    const card = await t.card("id", "checklists");
-    const local = window.TimeEpic.inspectChecklists(card.checklists, card.id || cardId, null);
-    if (local.complete || !appKey()) return local;
-    try {
-      const api = await t.getRestApi();
-      if (!(await api.isAuthorized())) return local;
-      const token = await api.getToken();
-      const response = await fetch("https://api.trello.com/1/cards/" + cardId + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
-      if (!response.ok) return local;
-      return window.TimeEpic.inspectChecklists(await response.json(), cardId, null);
-    } catch (error) {
-      return local;
+  async function readChildren(cardId, loadedCard, allowRemote) {
+    const card = loadedCard || await t.card("id", "checklists");
+    let checklists = card.checklists;
+    let local = window.TimeEpic.inspectChecklists(checklists, card.id || cardId, null);
+    if (allowRemote && !local.complete && !local.unresolvedCount && appKey()) {
+      try {
+        const api = await t.getRestApi();
+        if (await api.isAuthorized()) {
+          const token = await api.getToken();
+          checklists = await window.TimeRuntime.fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
+          local = window.TimeEpic.inspectChecklists(checklists, cardId, null);
+        }
+      } catch (error) { /* Keep the unknown state; never assume missing time is zero. */ }
     }
-  }
-
-  async function mapPool(items, limit, fn) {
-    const out = new Array(items.length);
-    let cursor = 0;
-    async function worker() {
-      while (cursor < items.length) {
-        const index = cursor;
-        cursor += 1;
-        out[index] = await fn(items[index], index);
-      }
+    if (local.unresolvedCount) {
+      const cards = await t.cards("id", "shortLink");
+      const links = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
+      local = window.TimeEpic.inspectChecklists(checklists, cardId, links);
     }
-    const workers = [];
-    const count = Math.min(limit, items.length);
-    for (let i = 0; i < count; i += 1) workers.push(worker());
-    await Promise.all(workers);
-    return out;
+    return local;
   }
 })();

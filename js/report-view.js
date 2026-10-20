@@ -30,6 +30,12 @@
     const status = h("div", { class: "status", role: "status" });
 
     function emit() {
+      const valid = root.TimeDuration.parseYmd(state.from) && root.TimeDuration.parseYmd(state.to) && state.from <= state.to;
+      exportButton.disabled = !valid;
+      if (!valid) {
+        status.textContent = "Choose a valid date range: From must be on or before To.";
+        return;
+      }
       handlers.onChange({
         preset: state.preset,
         from: state.from,
@@ -44,6 +50,8 @@
       const range = root.TimeDuration.periodRange(preset, handlers.today(), handlers.settings());
       state.from = range.from;
       state.to = range.to;
+      state.labelIds = [];
+      state.memberIds = [];
       fromInput.value = state.from;
       toInput.value = state.to;
       paintPresets();
@@ -64,12 +72,16 @@
     fromInput.addEventListener("change", function () {
       state.preset = "";
       state.from = fromInput.value;
+      state.labelIds = [];
+      state.memberIds = [];
       paintPresets();
       emit();
     });
     toInput.addEventListener("change", function () {
       state.preset = "";
       state.to = toInput.value;
+      state.labelIds = [];
+      state.memberIds = [];
       paintPresets();
       emit();
     });
@@ -78,7 +90,7 @@
       type: "button",
       class: "button mod-primary",
       onclick: function () { handlers.onExport(); }
-    }, "Download Excel");
+    }, "Download Excel XML");
 
     rootNode.appendChild(h("div", { class: "report" }, [
       h("div", { class: "toolbar" }, [

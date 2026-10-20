@@ -3,15 +3,7 @@
   const clear = root.TimeDom.clear;
   const format = root.TimeDuration.formatDuration;
 
-  function sortEntries(entries) {
-    return entries.slice().sort(function (a, b) {
-      const ta = a.createdAt || 0;
-      const tb = b.createdAt || 0;
-      if (ta !== tb) return tb - ta;
-      if (a.ymd !== b.ymd) return b.ymd - a.ymd;
-      return a.id < b.id ? 1 : -1;
-    });
-  }
+  const sortEntries = root.TimeModel.sortEntries;
 
   function mountCardView(rootNode, handlers) {
     const duration = h("input", {
@@ -56,8 +48,7 @@
 
     const form = h("form", { class: "log-form" }, [
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
-      formError,
-      addHint
+      formError
     ]);
 
     const limitForm = h("form", { class: "limit-form" }, [
@@ -67,6 +58,7 @@
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
       form,
+      addHint,
       editHost,
       total,
       list,
@@ -91,7 +83,7 @@
       formError.textContent = "";
       handlers.onAdd({
         minutes: parsed.minutes,
-        ymd: root.TimeDuration.ymdNumber(root.TimeDuration.formatYmd(new Date())),
+        ymd: root.TimeDuration.ymdNumber(root.TimeDuration.formatYmd(handlers.today ? handlers.today() : new Date())),
         note: note.value.trim()
       }).then(function () {
         duration.value = "";
@@ -146,7 +138,7 @@
         "aria-label": "Time",
         maxlength: "40"
       });
-      const editDate = h("input", { type: "date", name: "edit-date", "aria-label": "Date" });
+      const editDate = h("input", { type: "date", min: "1970-01-01", max: "2999-12-31", required: true, name: "edit-date", "aria-label": "Date" });
       editDate.value = root.TimeDuration.ymdString(entry.ymd);
       const editNote = h("input", {
         class: "field-comment grow",
@@ -222,6 +214,8 @@
       duration.disabled = !!model.saving || !canAdd;
       note.disabled = !!model.saving || !canAdd;
       addButton.disabled = !!model.saving || !canAdd;
+      limitInput.disabled = !!model.saving || !canWrite;
+      editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
       limitForm.hidden = !canWrite;
@@ -246,13 +240,15 @@
             actions.appendChild(h("button", {
               type: "button",
               class: "button-link",
+              disabled: !!model.saving,
               onclick: function () { openEdit(entry, settings); }
             }, "Edit"));
             actions.appendChild(h("button", {
               type: "button",
               class: "button-link danger",
               "aria-label": "Delete entry",
-              onclick: function () { handlers.onDelete(entry.id); }
+              disabled: !!model.saving,
+              onclick: function () { handlers.onDelete(entry.id).catch(function (error) { formError.textContent = error.message || "Could not delete entry."; }); }
             }, "Delete"));
           }
           list.appendChild(h("div", { class: "entry" }, [
@@ -272,7 +268,7 @@
       }
 
       storage.textContent = model.warning || (model.storageRatio > 0.75
-        ? "Card storage is " + Math.round(model.storageRatio * 100) + "% full (Trello limit is about 4 KB per card)."
+        ? "Card storage is " + Math.round(model.storageRatio * 100) + "% full (Trello limit is 4096 characters per shared scope)."
         : "");
 
       if (!limitInput.matches(":focus")) {
@@ -284,9 +280,9 @@
     function paintEpic(model, settings) {
       clear(epicBody);
       if (!model.kidsKnown) {
-        epicBody.appendChild(h("p", { class: "hint" }, "Checklists are not loaded yet. Reopen the card or set an API key to load child cards."));
+        epicBody.appendChild(h("p", { class: "hint" }, "Some links or child cards are unavailable. Keep linked cards on this board in open lists, then reopen the card."));
         if (handlers.canAuthorize) {
-          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize(); } }, "Allow read access"));
+          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
         }
         return;
       }

@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' https://p.trellocdn.com; object-src 'none'; base-uri 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Time Tracking for Trello</title>
   <link rel="icon" href="img/icon.svg">
@@ -29,17 +31,19 @@
       <li>Push this repo to public branch <code>main</code>.</li>
       <li>Settings → Pages → Deploy from branch → <code>main</code> → <code>/ (root)</code>.</li>
       <li>Use <code>https://USER.github.io/REPO/</code> as your site URL.</li>
-      <li>Create a Power-Up at <a href="https://trello.com/power-ups/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://USER.github.io/REPO/index.html</code>.</li>
+      <li>Create a Power-Up at <a href="https://trello.com/apps/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://USER.github.io/REPO/index.html</code>.</li>
       <li>Enable capabilities: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings.</li>
       <li>Add the Power-Up to a board.</li>
     </ol>
+    <p>For a repository named USER.github.io, omit REPO from the URL.</p>
     <p>API key is optional. Set it in <code>js/config.js</code> if Trello does not return checklist items for epic remaining time in the report.</p>
 
     <h2>Storage</h2>
-    <p>Entries are stored in shared Power-Up data on each card (~4 KB per card). Everyone who can see the card can read the log; only the author can edit their own entries.</p>
+    <p>Entries are stored in shared Power-Up data on each card (4096 characters per shared card scope). Everyone who can see the card can read the log. The interface allows authors to edit their own entries; shared storage does not enforce per-entry author permissions.</p>
   </main>
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/runtime.js"></script>
   <script src="js/duration.js"></script>
   <script src="js/model.js"></script>
   <script src="js/epic.js"></script>

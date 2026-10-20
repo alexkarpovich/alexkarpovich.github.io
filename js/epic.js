@@ -7,12 +7,16 @@
     const ids = [];
     const seen = new Set();
     let unlinked = 0;
+    let unresolved = 0;
     (checklists || []).forEach(function (list) {
       (list.checkItems || []).forEach(function (item) {
         let id = item && item.idCard ? String(item.idCard) : "";
         if (!id && item && item.name) {
-          const match = String(item.name).match(/trello\.com\/c\/([A-Za-z0-9]+)/);
-          if (match && shortLinkToId && shortLinkToId.get(match[1])) id = shortLinkToId.get(match[1]);
+          const match = String(item.name).match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i);
+          if (match) {
+            if (shortLinkToId) id = shortLinkToId.get(match[1]) || "";
+            if (!id) unresolved++;
+          }
         }
         if (!id) {
           unlinked += 1;
@@ -23,17 +27,17 @@
         ids.push(id);
       });
     });
-    return { childIds: ids, unlinkedCount: unlinked };
+    return { childIds: ids, unlinkedCount: unlinked, unresolvedCount: unresolved };
   }
 
   // Trello sometimes returns checklist shells without items. Treat that as unknown.
   function inspectChecklists(checklists, selfId, shortLinkToId) {
     if (!Array.isArray(checklists)) return { complete: false, childIds: null, unlinkedCount: 0 };
     if (checklists.length === 0) return { complete: true, childIds: [], unlinkedCount: 0 };
-    const missingItems = checklists.some(function (list) { return !Array.isArray(list.checkItems); });
+    const missingItems = checklists.some(function (list) { return !list || !Array.isArray(list.checkItems); });
     if (missingItems) return { complete: false, childIds: null, unlinkedCount: 0 };
     const parsed = childIdsFromChecklists(checklists, selfId, shortLinkToId);
-    return { complete: true, childIds: parsed.childIds, unlinkedCount: parsed.unlinkedCount };
+    return { complete: parsed.unresolvedCount === 0, childIds: parsed.childIds, unlinkedCount: parsed.unlinkedCount, unresolvedCount: parsed.unresolvedCount };
   }
 
   function sameIds(left, right) {

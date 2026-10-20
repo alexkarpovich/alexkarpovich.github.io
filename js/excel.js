@@ -5,6 +5,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   function escapeXml(value) {
     return String(value == null ? "" : value)
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
@@ -44,7 +45,7 @@
 
   function buildWorkbook(report, formatDuration, settings) {
     const summary = [
-      row(["Author", "Card", "List", "Labels", "Time", ["Minutes", "Number"], ["Hours", "Number"], "Link"])
+      row(["Author", "Card", "List", "Labels", "Time", "Minutes", "Hours", "Link"])
     ];
     report.groups.forEach(function (group) {
       group.rows.forEach(function (item) {
@@ -82,7 +83,7 @@
     ]));
 
     const entries = [
-      row(["Date", "Author", "Card", "List", "Labels", "Time", ["Minutes", "Number"], ["Hours", "Number"], "Note", "Link"])
+      row(["Date", "Author", "Card", "List", "Labels", "Time", "Minutes", "Hours", "Note", "Link"])
     ];
     report.entries.forEach(function (entry) {
       entries.push(row([
@@ -100,7 +101,7 @@
     });
 
     const epics = [
-      row(["Epic", "Labels", "Limit", ["Limit, min", "Number"], "Spent by children", ["Spent, min", "Number"], "Remaining", ["Remaining, min", "Number"], "Status", "Link"])
+      row(["Epic", "Labels", "Limit", "Limit, min", "Spent by children", "Spent, min", "Remaining", "Remaining, min", "Status", "Link"])
     ];
     report.epics.forEach(function (epic) {
       const known = epic.known && epic.spentMinutes != null;

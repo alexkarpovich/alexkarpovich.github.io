@@ -8,16 +8,17 @@
   let notice = "";
   let needsAuth = false;
   let report = null;
+  const refresh = window.TimeRuntime.coalesce(reload);
 
   if (window.parent === window || !window.TrelloPowerUp) {
     app.textContent = "Open this report from the Time report board button in Trello.";
     return;
   }
-  t = window.TrelloPowerUp.iframe();
+  t = window.TrelloPowerUp.iframe(window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
   window.TimeTheme.bind(t);
 
   t.render(function () {
-    return reload().catch(function (error) {
+    return refresh().catch(function (error) {
       notice = error.message || "Could not build the report.";
       if (view && report) view.update(report, notice);
       else app.textContent = notice;
@@ -29,8 +30,13 @@
   }
 
   async function reload() {
-    settings = window.TimeDuration.normalizeSettings(await t.get("board", "shared", "settings", null));
+    const [rawSettings, loaded] = await Promise.all([
+      t.get("board", "shared", "settings", null),
+      loadBoard()
+    ]);
+    settings = window.TimeDuration.normalizeSettings(rawSettings);
     if (!view) {
+      app.textContent = "";
       view = window.TimeReportView.mount(app, {
         today: function () { return new Date(); },
         settings: function () { return settings; },
@@ -38,7 +44,6 @@
         onExport: exportExcel
       });
     }
-    const loaded = await loadBoard();
     cards = loaded.cards;
     notice = loaded.notice;
     needsAuth = loaded.needsAuth;
@@ -56,7 +61,7 @@
     if (!report) return;
     report.labelText = window.TimeAggregate.labelText;
     const xml = window.TimeExcel.buildWorkbook(report, window.TimeDuration.formatDuration, settings);
-    window.TimeDom.download("time-report-" + report.from + "_" + report.to + ".xls", xml);
+    window.TimeDom.download("time-report-" + report.from + "_" + report.to + ".xml", xml, "application/xml;charset=utf-8");
   }
 
   function paintBanner() {
@@ -71,19 +76,28 @@
       type: "button",
       class: "button mod-primary",
       onclick: async function () {
-        const api = await t.getRestApi();
-        await api.authorize({ scope: "read", expiration: "never" });
-        await reload();
+        const button = this;
+        button.disabled = true;
+        try {
+          const api = await t.getRestApi();
+          await api.authorize({ scope: "read", expiration: "never" });
+          await refresh();
+        } catch (error) {
+          notice = error.message || "Could not authorize. Please try again.";
+          renderReport();
+        } finally { button.disabled = false; }
       }
     }, "Allow"));
   }
 
   async function loadBoard() {
-    const cardList = await t.cards("id", "name", "url", "labels", "idList", "shortLink", "checklists");
-    const lists = await t.lists("id", "name");
+    const [cardList, lists] = await Promise.all([
+      t.cards("id", "name", "url", "labels", "idList", "shortLink", "checklists"),
+      t.lists("id", "name")
+    ]);
     const listNames = new Map((lists || []).map(function (list) { return [list.id, list.name]; }));
     const shortLinks = new Map((cardList || []).map(function (card) { return [card.shortLink, card.id]; }));
-    const times = await mapPool(cardList, 8, function (card) {
+    const times = await window.TimeRuntime.mapPool(cardList, 8, function (card) {
       return t.get(card.id, "shared", "time", null);
     });
     const states = times.map(function (raw) { return window.TimeModel.decode(raw); });
@@ -94,12 +108,10 @@
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks);
-      let kids = state.kids;
+      let kids = fromClient.complete ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
         const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks);
         if (parsed.complete) kids = parsed.childIds;
-      } else if (fromClient.complete) {
-        kids = fromClient.childIds;
       }
       return {
         id: card.id,
@@ -116,40 +128,14 @@
       };
     });
 
-    const known = new Set(cardsOut.map(function (card) { return card.id; }));
-    const missingIds = [];
-    cardsOut.forEach(function (card) {
-      (card.kids || []).forEach(function (id) {
-        if (!known.has(id)) missingIds.push(id);
-      });
-    });
-    const uniqueMissing = Array.from(new Set(missingIds));
-    const missingTimes = await mapPool(uniqueMissing, 8, function (id) {
-      return t.get(id, "shared", "time", null);
-    });
-    uniqueMissing.forEach(function (id, index) {
-      const state = window.TimeModel.decode(missingTimes[index]);
-      cardsOut.push({
-        id: id,
-        name: "Unavailable card",
-        url: "",
-        listName: "",
-        labels: [],
-        entries: state.entries,
-        limitMinutes: null,
-        kids: null,
-        missing: true
-      });
-    });
-
     const unknown = cardsOut.filter(function (card) { return card.limitMinutes != null && !Array.isArray(card.kids); });
-    let message = "";
+    let message = "Report includes only visible cards in open lists; archived cards are excluded.";
     if (unknown.length && !appKey()) {
-      message = "Checklists for some epics were not returned by Trello. Set appKey in js/config.js or open the epic card to refresh links.";
+      message += " Checklists for some epics were not returned by Trello. Open the epic card to inspect its links.";
     } else if (unknown.length && remote.needsAuth) {
-      message = "Checklists for some epics were not returned. Allow board read access to compute remaining time.";
+      message += " Checklists for some epics were not returned. Allow board read access to compute remaining time.";
     } else if (unknown.length) {
-      message = "Could not read checklists for some epics. Open those cards to refresh links.";
+      message += " Could not read checklists for some epics. Open those cards to refresh links.";
     }
     return { cards: cardsOut, notice: message, needsAuth: !!(unknown.length && remote.needsAuth && appKey()) };
   }
@@ -161,30 +147,13 @@
       if (!(await api.isAuthorized())) return { map: null, needsAuth: true };
       const token = await api.getToken();
       const board = await t.board("id");
-      const response = await fetch("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,idCard,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
-      if (!response.ok) return { map: null, needsAuth: false };
-      const list = await response.json();
+      const list = await window.TimeRuntime.fetchJson("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,idCard,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
       const map = new Map();
-      list.forEach(function (card) { map.set(card.id, card.checklists || []); });
+      list.forEach(function (card) { map.set(card.id, card.checklists); });
       return { map: map, needsAuth: false };
     } catch (error) {
       return { map: null, needsAuth: false };
     }
   }
 
-  async function mapPool(items, limit, fn) {
-    const out = new Array(items.length);
-    let cursor = 0;
-    async function worker() {
-      while (cursor < items.length) {
-        const index = cursor;
-        cursor += 1;
-        out[index] = await fn(items[index], index);
-      }
-    }
-    const workers = [];
-    for (let i = 0; i < Math.min(limit, items.length); i += 1) workers.push(worker());
-    await Promise.all(workers);
-    return out;
-  }
 })();

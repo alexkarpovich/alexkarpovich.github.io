@@ -68,3 +68,9 @@ test("current week starts on Monday by default", function () {
     to: "2026-10-24"
   });
 });
+
+test("clock format enforces the same limit as unit format", function () {
+  for (const value of ["999999999999999999999:00", "16667:00", "1:60", "1000001m"]) {
+    assert.equal(duration.parseDuration(value, settings).ok, false, value);
+  }
+});
