@@ -58,6 +58,39 @@ body.frame { background: var(--card); }
 
 button, input, select { font: inherit; color: inherit; }
 
+/* Trello's base CSS gives buttons and inputs different external spacing. */
+.trello-power-up button,
+.trello-power-up input,
+.trello-power-up select,
+.trello-power-up label,
+.trello-power-up form {
+  margin: 0;
+}
+
+.trello-power-up .log-form-inline,
+.trello-power-up .limit-form .control-row,
+.trello-power-up .toolbar {
+  flex-wrap: nowrap;
+}
+
+.trello-power-up .log-form-inline button,
+.trello-power-up .limit-form .control-row button,
+.trello-power-up .toolbar > .button.mod-primary {
+  display: inline-flex;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.trello-power-up .limit-form .control-row .button-link {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h);
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+.trello-power-up [hidden] { display: none !important; }
+
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -76,7 +109,17 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--input-bg);
+  color: var(--text);
+  box-shadow: none;
+  font-weight: 400;
   min-width: 0;
+}
+
+.trello-power-up input:not([type="checkbox"]):focus,
+.trello-power-up select:focus,
+.trello-power-up button:focus-visible {
+  outline: 2px solid var(--ds-border-focused, #85b8ff);
+  outline-offset: 1px;
 }
 
 .trello-power-up .button,
@@ -179,6 +222,10 @@ button:disabled,
   width: 100%;
 }
 
+.control-row + .control-row { margin-top: var(--control-gap); }
+.control-row > button { flex-shrink: 0; }
+.edit-form .field-time { flex: 1 1 76px; width: 76px; }
+
 .log-form-inline .field-time {
   flex: 0 0 76px;
   width: 76px;
@@ -246,7 +293,7 @@ button:disabled,
 .preview-grid > section { min-width: 0; }
 .preview-wrap h1 { font-size: 22px; margin: 0 0 8px; }
 
-.row, .toolbar, .filters, .entry-main, .child, .total, .summary, .banner, .entry-actions {
+.row, .toolbar, .filters, .child, .total, .summary, .banner {
   display: flex;
   gap: var(--control-gap);
   align-items: center;
@@ -259,16 +306,23 @@ button:disabled,
   gap: 10px;
 }
 
+@media (max-width: 720px) {
+  .trello-power-up .toolbar {
+    flex-wrap: wrap;
+  }
+}
+
 .filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   align-items: start;
   margin-bottom: 10px;
-  gap: 10px;
+  gap: 12px 24px;
 }
 
 .filters .field.grow {
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -286,6 +340,7 @@ button:disabled,
   flex-direction: column;
   gap: 4px;
   margin: 0;
+  font-weight: 400;
 }
 
 .toolbar .date-field input[type="date"] {
@@ -321,8 +376,9 @@ button:disabled,
 .total strong, .summary strong { font-size: 18px; font-variant-numeric: tabular-nums; }
 .summary span { color: var(--muted); font-size: 13px; }
 
-.error { color: var(--red); min-height: 1em; margin-top: 4px; font-size: 12px; }
-.empty { color: var(--muted); margin: 6px 0; font-size: 13px; }
+.error { color: var(--red); margin-top: 4px; font-size: 12px; }
+.error:empty, .hint:empty { display: none; }
+.empty-state { color: var(--muted); margin: 6px 0; font-size: 13px; }
 
 .log-form .error { width: 100%; flex-basis: 100%; }
 
@@ -347,17 +403,54 @@ button:disabled,
 
 .entry-list, .child-list { max-height: 260px; overflow: auto; margin-top: 4px; }
 .entry {
-  padding: 7px 0;
+  padding: 5px 0;
   border-bottom: 1px solid var(--line);
 }
+.entry-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .entry-main {
-  gap: 10px;
+  display: flex;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
   font-size: 13px;
 }
-.entry-main strong { font-variant-numeric: tabular-nums; }
-.note { color: var(--muted); font-size: 12px; margin-top: 2px; }
-.author { color: var(--muted); font-size: 12px; }
-.entry-actions { margin-top: 4px; gap: 10px; }
+.entry-main strong { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.entry-main > span:not(.author) { flex-shrink: 0; white-space: nowrap; }
+.note { color: var(--muted); font-size: 12px; margin-top: 1px; overflow-wrap: anywhere; }
+.author { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+}
+.entry:hover .entry-actions,
+.entry:focus-within .entry-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.trello-power-up .entry-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+.entry-action svg { width: 16px; height: 16px; }
+.trello-power-up .entry-action:hover { background: var(--btn-bg); color: var(--text); }
+.trello-power-up .entry-action.danger:hover { color: var(--red); }
+@media (hover: none) {
+  .entry-actions { opacity: 1; pointer-events: auto; }
+}
 
 .epic { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .epic h2, .epic-report h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
@@ -386,8 +479,9 @@ button:disabled,
 }
 
 .table-wrap, .epic-report { overflow: auto; margin-top: 8px; }
-table { width: 100%; border-collapse: collapse; background: var(--card); font-size: 13px; }
-th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table { width: 100%; border: 0; margin: 0; border-collapse: collapse; background: var(--card); font-size: 13px; }
+thead, tbody { background: var(--card); }
+th, td { text-align: left; padding: 7px 8px; border: 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; position: sticky; top: 0; background: var(--card); }
 .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .group-row td { background: var(--bg); font-weight: 600; }

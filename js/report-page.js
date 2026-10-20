@@ -102,7 +102,9 @@
     });
     const states = times.map(function (raw) { return window.TimeModel.decode(raw); });
     const needsLists = cardList.some(function (card, index) {
-      return states[index].limitMinutes != null && !window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks).complete;
+      if (states[index].limitMinutes == null) return false;
+      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks);
+      return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
     const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };
     const cardsOut = cardList.map(function (card, index) {

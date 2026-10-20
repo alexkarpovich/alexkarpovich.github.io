@@ -197,16 +197,15 @@
     const settings = window.TimeDuration.normalizeSettings(rawSettings);
     currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
     const state = window.TimeModel.decode(raw);
-    const inspection = await readChildren(card.id, card, state.limitMinutes != null);
+    const inspection = await readChildren(card.id, card, state.limitMinutes != null || !!(card.checklists && card.checklists.length));
     // Rendering never writes pluginData: opening a card cannot overwrite a log.
-    state.kids = inspection.complete ? inspection.childIds : null;
 
     const write = canWriteCard();
-    const kids = state.kids || [];
+    const kids = inspection.childIds || [];
     let children = kids.map(function (id) {
       return { id: id, name: "Card", url: "", minutes: 0 };
     });
-    if (state.limitMinutes != null && kids.length) {
+    if (kids.length) {
       const boardCards = await client.cards("id", "name", "url");
       const byId = new Map(boardCards.map(function (item) { return [item.id, item]; }));
       const childTimes = await window.TimeRuntime.mapPool(kids, 8, async function (id) {
@@ -250,7 +249,8 @@
     const card = loadedCard || await t.card("id", "checklists");
     let checklists = card.checklists;
     let local = window.TimeEpic.inspectChecklists(checklists, card.id || cardId, null);
-    if (allowRemote && !local.complete && !local.unresolvedCount && appKey()) {
+    const wantRemote = allowRemote && appKey() && window.TimeEpic.needsRemoteChecklists(local, checklists);
+    if (wantRemote) {
       try {
         const api = await t.getRestApi();
         if (await api.isAuthorized()) {

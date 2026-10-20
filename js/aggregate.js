@@ -178,6 +178,8 @@
         known: known,
         children: children
       };
+    }).filter(function (epic) {
+      return epic.children.length > 0;
     }).sort(function (a, b) { return a.cardName.localeCompare(b.cardName, "en"); });
 
     const cardIds = new Set();

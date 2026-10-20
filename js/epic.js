@@ -46,9 +46,22 @@
     return true;
   }
 
+  // Trello's iframe API often returns checklist shells with empty checkItems arrays.
+  function needsRemoteChecklists(inspection, checklists) {
+    if (!inspection || !inspection.complete) return true;
+    if (inspection.childIds && inspection.childIds.length) return false;
+    const lists = checklists || [];
+    if (!lists.length) return false;
+    return lists.some(function (list) {
+      if (!list || !Array.isArray(list.checkItems)) return true;
+      return list.checkItems.length === 0;
+    });
+  }
+
   return {
     childIdsFromChecklists: childIdsFromChecklists,
     inspectChecklists: inspectChecklists,
+    needsRemoteChecklists: needsRemoteChecklists,
     sameIds: sameIds
   };
 });

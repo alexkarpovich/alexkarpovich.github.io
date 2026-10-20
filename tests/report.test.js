@@ -29,6 +29,15 @@ test("does not treat a missing checklist field as an empty epic", function () {
   assert.equal(epic.inspectChecklists([{ name: "Дела" }], "epic").complete, false);
 });
 
+test("detects checklist shells that need a remote fetch", function () {
+  const shell = epic.inspectChecklists([{ checkItems: [] }], "epic");
+  assert.equal(shell.complete, true);
+  assert.equal(epic.needsRemoteChecklists(shell, [{ checkItems: [] }]), true);
+  assert.equal(epic.needsRemoteChecklists(epic.inspectChecklists([], "epic"), []), false);
+  const linked = epic.inspectChecklists([{ checkItems: [{ idCard: "child" }] }], "epic");
+  assert.equal(epic.needsRemoteChecklists(linked, [{ checkItems: [{ idCard: "child" }] }]), false);
+});
+
 function fixture() {
   return [
     {

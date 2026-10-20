@@ -5,6 +5,20 @@
 
   const sortEntries = root.TimeModel.sortEntries;
 
+  function entryAction(label, iconPath, danger, disabled, onClick) {
+    const button = h("button", {
+      type: "button",
+      class: "entry-action" + (danger ? " danger" : ""),
+      "aria-label": label,
+      title: label,
+      disabled: disabled,
+      onclick: onClick
+    });
+    // Only the fixed icon paths below are inserted as markup.
+    button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + iconPath + "</svg>";
+    return button;
+  }
+
   function mountCardView(rootNode, handlers) {
     const duration = h("input", {
       class: "field-time",
@@ -55,6 +69,12 @@
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit]),
       limitError
     ]);
+    const epicSection = h("section", { class: "epic", hidden: true }, [
+      h("h2", null, "Epic limit"),
+      h("p", { class: "hint" }, "Remaining = limit minus time on child cards. Time on this epic is excluded."),
+      limitForm,
+      epicBody
+    ]);
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
       form,
@@ -63,12 +83,7 @@
       total,
       list,
       storage,
-      h("section", { class: "epic" }, [
-        h("h2", null, "Epic limit"),
-        h("p", { class: "hint" }, "Child cards come from checklists. Remaining = limit minus their time. Time logged on the epic card itself is not counted."),
-        limitForm,
-        epicBody
-      ])
+      epicSection
     ]));
 
     let editingId = null;
@@ -231,34 +246,31 @@
       clear(list);
       const sorted = sortEntries(model.entries);
       if (!sorted.length) {
-        list.appendChild(h("p", { class: "empty" }, "No entries yet."));
+        list.appendChild(h("p", { class: "empty-state" }, "No entries yet."));
       } else {
         sorted.forEach(function (entry) {
           const mine = entry.memberId === model.currentMemberId;
           const actions = h("div", { class: "entry-actions" });
           if (mine && canWrite) {
-            actions.appendChild(h("button", {
-              type: "button",
-              class: "button-link",
-              disabled: !!model.saving,
-              onclick: function () { openEdit(entry, settings); }
-            }, "Edit"));
-            actions.appendChild(h("button", {
-              type: "button",
-              class: "button-link danger",
-              "aria-label": "Delete entry",
-              disabled: !!model.saving,
-              onclick: function () { handlers.onDelete(entry.id).catch(function (error) { formError.textContent = error.message || "Could not delete entry."; }); }
-            }, "Delete"));
+            actions.appendChild(entryAction("Edit entry",
+              '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
+              false, !!model.saving, function () { openEdit(entry, settings); }));
+            actions.appendChild(entryAction("Delete entry",
+              '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
+              true, !!model.saving, function () {
+                handlers.onDelete(entry.id).catch(function (error) { formError.textContent = error.message || "Could not delete entry."; });
+              }));
           }
           list.appendChild(h("div", { class: "entry" }, [
-            h("div", { class: "entry-main" }, [
-              h("strong", null, format(entry.minutes, settings)),
-              h("span", null, root.TimeDuration.ymdString(entry.ymd)),
-              h("span", { class: "author" }, entry.memberName)
+            h("div", { class: "entry-heading" }, [
+              h("div", { class: "entry-main" }, [
+                h("strong", null, format(entry.minutes, settings)),
+                h("span", null, root.TimeDuration.ymdString(entry.ymd)),
+                h("span", { class: "author", title: entry.memberName }, entry.memberName)
+              ]),
+              mine && canWrite ? actions : null
             ]),
-            entry.note ? h("div", { class: "note" }, entry.note) : null,
-            actions
+            entry.note ? h("div", { class: "note" }, entry.note) : null
           ]));
         });
       }
@@ -274,7 +286,8 @@
       if (!limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
-      paintEpic(model, settings);
+      epicSection.hidden = !model.children.length;
+      if (!epicSection.hidden) paintEpic(model, settings);
     }
 
     function paintEpic(model, settings) {
@@ -287,7 +300,7 @@
         return;
       }
       if (model.limitMinutes == null) {
-        epicBody.appendChild(h("p", { class: "empty" }, model.children.length
+        epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
           ? model.children.length + " child cards. Set a limit to see remaining time."
           : "No linked child cards in checklists. You can still set a limit."));
         if (model.unlinkedCount) {
@@ -306,7 +319,7 @@
       epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings) + " of " + format(model.limitMinutes, settings)));
 
       if (!model.children.length) {
-        epicBody.appendChild(h("p", { class: "empty" }, "No cards in checklists."));
+        epicBody.appendChild(h("p", { class: "empty-state" }, "No cards in checklists."));
       } else {
         const childList = h("div", { class: "child-list" });
         model.children.forEach(function (child) {

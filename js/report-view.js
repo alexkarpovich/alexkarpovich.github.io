@@ -155,7 +155,7 @@
 
       clear(tableHost);
       if (!report.groups.length) {
-        tableHost.appendChild(h("p", { class: "empty" }, "No entries for the selected period."));
+        tableHost.appendChild(h("p", { class: "empty-state" }, "No entries for the selected period."));
       } else {
         const body = h("tbody");
         report.groups.forEach(function (group) {
@@ -185,12 +185,10 @@
       }
 
       clear(epicHost);
+      epicHost.hidden = !report.epics.length;
+      if (epicHost.hidden) return;
       epicHost.appendChild(h("h2", null, "Epics"));
       epicHost.appendChild(h("p", { class: "hint" }, "Remaining time uses all logged time on child checklist cards, not just this period. Time on the epic card itself is excluded from the limit."));
-      if (!report.epics.length) {
-        epicHost.appendChild(h("p", { class: "empty" }, "No cards with a limit. Open an epic and set a limit, e.g. 1w or 3d."));
-        return;
-      }
       const ebody = h("tbody");
       report.epics.forEach(function (epic) {
         const name = epic.cardUrl ? h("a", { href: epic.cardUrl, target: "_blank", rel: "noopener" }, epic.cardName) : epic.cardName;
