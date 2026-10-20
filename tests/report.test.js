@@ -49,6 +49,15 @@ test("reads card id from nested checklist item card objects", function () {
   });
 });
 
+test("ignores host-card idCard and resolves linked child from URL", function () {
+  const links = new Map([["abc123", "child"]]);
+  const parsed = epic.childIdsFromChecklists([{
+    checkItems: [{ idCard: "epic", name: "https://trello.com/c/abc123/2-wefwe" }]
+  }], "epic", links);
+  assert.deepEqual(parsed.childIds, ["child"]);
+  assert.equal(parsed.unlinkedCount, 0);
+});
+
 test("matches checklist item titles to uniquely named board cards", function () {
   const byName = epic.uniqueNameIndex([
     { id: "child", name: "wefwe" },

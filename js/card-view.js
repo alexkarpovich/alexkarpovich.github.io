@@ -46,6 +46,7 @@
     const total = h("div", { class: "total" });
     const list = h("div", { class: "entry-list" });
     const storage = h("div", { class: "hint" });
+    const debugHost = h("pre", { class: "epic-debug hint", hidden: true });
     const editHost = h("div", { class: "edit-panel", hidden: "hidden" });
 
     const limitInput = h("input", {
@@ -83,6 +84,7 @@
       total,
       list,
       storage,
+      debugHost,
       epicSection
     ]));
 
@@ -282,6 +284,13 @@
       storage.textContent = model.warning || (model.storageRatio > 0.75
         ? "Card storage is " + Math.round(model.storageRatio * 100) + "% full (Trello limit is 4096 characters per shared scope)."
         : "");
+      if (model.debugEpic) {
+        debugHost.hidden = false;
+        debugHost.textContent = JSON.stringify(model.debugEpic, null, 2);
+      } else {
+        debugHost.hidden = true;
+        debugHost.textContent = "";
+      }
 
       if (!limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";

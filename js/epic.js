@@ -13,6 +13,48 @@
     return "";
   }
 
+  function checkItemLabel(name) {
+    const raw = String(name || "").trim();
+    if (!raw) return { title: "", shortLink: "" };
+    const markdown = raw.match(/^\[([^\]]*)\]\(\s*(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
+    if (markdown) {
+      return { title: String(markdown[1] || "").trim(), shortLink: markdown[2] };
+    }
+    const plainUrl = raw.match(/^(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
+    if (plainUrl) return { title: "", shortLink: plainUrl[1] };
+    return { title: raw, shortLink: "" };
+  }
+
+  function shortLinkFromCheckItemName(name) {
+    const label = checkItemLabel(name);
+    if (label.shortLink) return label.shortLink;
+    const embedded = String(name || "").match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i)
+      || String(name || "").match(/\]\(\s*(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
+    return embedded ? embedded[1] : "";
+  }
+
+  function resolveCheckItemChildId(item, selfId, shortLinkToId, cardsByName) {
+    const hostId = cardIdFromCheckItem(item);
+    let id = hostId;
+    // Trello often sets idCard to the host card, not the linked child card.
+    if (id === selfId) id = "";
+    const label = item && item.name ? checkItemLabel(item.name) : { title: "", shortLink: "" };
+    const slug = !id && item && item.name ? shortLinkFromCheckItemName(item.name) : (label.shortLink || "");
+    if (!id && slug) {
+      if (!shortLinkToId) return { id: "", unresolved: true };
+      id = shortLinkToId.get(slug) || "";
+      if (!id) return { id: "", unresolved: true };
+    }
+    if (!id && cardsByName) {
+      if (label.title) id = cardsByName.get(label.title.toLowerCase()) || "";
+      if (!id && item && item.name) {
+        id = cardsByName.get(String(item.name).trim().toLowerCase()) || "";
+      }
+    }
+    if (id === selfId) id = "";
+    return { id: id, unresolved: false };
+  }
+
   function uniqueNameIndex(cards) {
     const counts = new Map();
     (cards || []).forEach(function (card) {
@@ -36,24 +78,19 @@
     let unresolved = 0;
     (checklists || []).forEach(function (list) {
       (list.checkItems || []).forEach(function (item) {
-        let id = cardIdFromCheckItem(item);
-        if (!id && item && item.name) {
-          const name = String(item.name);
-          const match = name.match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i)
-            || name.match(/\]\((?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
-          if (match) {
-            if (shortLinkToId) id = shortLinkToId.get(match[1]) || "";
-            if (!id) unresolved++;
-          }
+        const hostId = cardIdFromCheckItem(item);
+        const resolved = resolveCheckItemChildId(item, selfId, shortLinkToId, cardsByName);
+        if (resolved.unresolved) {
+          unresolved += 1;
+          return;
         }
-        if (!id && item && item.name && cardsByName) {
-          id = cardsByName.get(String(item.name).trim().toLowerCase()) || "";
-        }
+        const id = resolved.id;
         if (!id) {
+          if (hostId === selfId) return;
           unlinked += 1;
           return;
         }
-        if (id === selfId || seen.has(id)) return;
+        if (seen.has(id)) return;
         seen.add(id);
         ids.push(id);
       });
@@ -86,6 +123,8 @@
 
   return {
     cardIdFromCheckItem: cardIdFromCheckItem,
+    checkItemLabel: checkItemLabel,
+    resolveCheckItemChildId: resolveCheckItemChildId,
     uniqueNameIndex: uniqueNameIndex,
     childIdsFromChecklists: childIdsFromChecklists,
     inspectChecklists: inspectChecklists,

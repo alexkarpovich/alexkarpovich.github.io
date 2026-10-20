@@ -22,6 +22,30 @@
     return (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) || "";
   }
 
+  function buildLabel() {
+    return (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.build) || "dev";
+  }
+
+  function debugEnabled() {
+    try { return window.localStorage.getItem("timetrackDebug") === "1"; } catch (error) { return false; }
+  }
+
+  function checklistDebugItems(checklists, selfId, shortLinks, nameIndex) {
+    const rows = [];
+    (checklists || []).forEach(function (list) {
+      (list.checkItems || []).forEach(function (item) {
+        const resolved = window.TimeEpic.resolveCheckItemChildId(item, selfId, shortLinks, nameIndex);
+        rows.push({
+          name: item && item.name,
+          idCard: item && item.idCard,
+          childId: resolved.id || null,
+          unresolved: resolved.unresolved
+        });
+      });
+    });
+    return rows;
+  }
+
   function permissions() {
     const ctx = t.getContext();
     return (ctx && ctx.permissions) || {};
@@ -227,6 +251,21 @@
       };
     });
 
+    const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
+    const debugEpic = debugEnabled() ? {
+      build: buildLabel(),
+      epicId: card.id,
+      limitMinutes: state.limitMinutes,
+      childIds: kids.slice(),
+      spentMinutes: spent,
+      remainingMinutes: state.limitMinutes != null ? state.limitMinutes - spent : null,
+      kidsKnown: inspection.complete && !children.some(function (child) { return child.missing; }),
+      checklistItems: checklistDebugItems(inspection.checklists || card.checklists, card.id, shortLinks, nameIndex),
+      children: children.map(function (child) {
+        return { id: child.id, name: child.name, minutes: child.minutes, missing: child.missing };
+      })
+    } : null;
+
     return {
       cardId: card.id,
       settings: settings,
@@ -238,6 +277,8 @@
       kidsKnown: inspection.complete && !children.some(function (child) { return child.missing; }),
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,
+      buildLabel: buildLabel(),
+      debugEpic: debugEpic,
       warning: "",
       error: "",
       limitError: "",

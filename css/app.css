@@ -452,6 +452,20 @@ button:disabled,
   .entry-actions { opacity: 1; pointer-events: auto; }
 }
 
+.epic-debug {
+  margin: 8px 0 0;
+  padding: 8px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+}
+
 .epic { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .epic h2, .epic-report h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
 .remain { font-weight: 600; font-size: 14px; margin: 4px 0; }

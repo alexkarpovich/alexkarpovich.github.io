@@ -172,7 +172,13 @@
     if (local.unresolvedCount) {
       local = inspect();
     }
-    return local;
+    return {
+      complete: local.complete,
+      childIds: local.childIds,
+      unlinkedCount: local.unlinkedCount,
+      unresolvedCount: local.unresolvedCount,
+      checklists: checklists
+    };
   }
 
   return {
