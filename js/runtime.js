@@ -96,5 +96,34 @@
     } : {};
   }
 
-  return { mapPool: mapPool, createReader: createReader, coalesce: coalesce, fetchJson: fetchJson, clientOptions: clientOptions };
+  async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi) {
+    let checklists = (card && card.checklists) || [];
+    let local = epicApi.inspectChecklists(checklists, cardId, null);
+    const wantRemote = allowRemote && appKey && epicApi.needsRemoteChecklists(local, checklists);
+    if (wantRemote) {
+      try {
+        const api = await client.getRestApi();
+        if (await api.isAuthorized()) {
+          const token = await api.getToken();
+          checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(token));
+          local = epicApi.inspectChecklists(checklists, cardId, null);
+        }
+      } catch (error) { /* Keep the unknown state; never assume missing time is zero. */ }
+    }
+    if (local.unresolvedCount) {
+      const cards = await client.cards("id", "shortLink");
+      const links = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
+      local = epicApi.inspectChecklists(checklists, cardId, links);
+    }
+    return local;
+  }
+
+  return {
+    mapPool: mapPool,
+    createReader: createReader,
+    coalesce: coalesce,
+    fetchJson: fetchJson,
+    clientOptions: clientOptions,
+    resolveChecklistInspection: resolveChecklistInspection
+  };
 });

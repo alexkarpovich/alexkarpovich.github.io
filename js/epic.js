@@ -3,6 +3,16 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.TimeEpic = api;
 })(typeof self !== "undefined" ? self : this, function () {
+  function cardIdFromCheckItem(item) {
+    if (!item || typeof item !== "object") return "";
+    if (item.idCard != null && item.idCard !== "") return String(item.idCard);
+    if (item.card) {
+      if (typeof item.card === "string") return item.card;
+      if (item.card.id) return String(item.card.id);
+    }
+    return "";
+  }
+
   function childIdsFromChecklists(checklists, selfId, shortLinkToId) {
     const ids = [];
     const seen = new Set();
@@ -10,7 +20,7 @@
     let unresolved = 0;
     (checklists || []).forEach(function (list) {
       (list.checkItems || []).forEach(function (item) {
-        let id = item && item.idCard ? String(item.idCard) : "";
+        let id = cardIdFromCheckItem(item);
         if (!id && item && item.name) {
           const match = String(item.name).match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i);
           if (match) {
@@ -46,19 +56,15 @@
     return true;
   }
 
-  // Trello's iframe API often returns checklist shells with empty checkItems arrays.
+  // Trello's iframe API often omits idCard or returns empty checkItems until REST is used.
   function needsRemoteChecklists(inspection, checklists) {
     if (!inspection || !inspection.complete) return true;
     if (inspection.childIds && inspection.childIds.length) return false;
-    const lists = checklists || [];
-    if (!lists.length) return false;
-    return lists.some(function (list) {
-      if (!list || !Array.isArray(list.checkItems)) return true;
-      return list.checkItems.length === 0;
-    });
+    return (checklists || []).length > 0;
   }
 
   return {
+    cardIdFromCheckItem: cardIdFromCheckItem,
     childIdsFromChecklists: childIdsFromChecklists,
     inspectChecklists: inspectChecklists,
     needsRemoteChecklists: needsRemoteChecklists,

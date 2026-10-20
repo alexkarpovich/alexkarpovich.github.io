@@ -36,6 +36,17 @@ test("detects checklist shells that need a remote fetch", function () {
   assert.equal(epic.needsRemoteChecklists(epic.inspectChecklists([], "epic"), []), false);
   const linked = epic.inspectChecklists([{ checkItems: [{ idCard: "child" }] }], "epic");
   assert.equal(epic.needsRemoteChecklists(linked, [{ checkItems: [{ idCard: "child" }] }]), false);
+  const stripped = epic.inspectChecklists([{ checkItems: [{ name: "Subtask", state: "incomplete" }] }], "epic");
+  assert.equal(epic.needsRemoteChecklists(stripped, [{ checkItems: [{ name: "Subtask" }] }]), true);
+});
+
+test("reads card id from nested checklist item card objects", function () {
+  assert.equal(epic.cardIdFromCheckItem({ card: { id: "child" } }), "child");
+  assert.deepEqual(epic.childIdsFromChecklists([{ checkItems: [{ card: { id: "child" } }] }], "epic"), {
+    childIds: ["child"],
+    unlinkedCount: 0,
+    unresolvedCount: 0
+  });
 });
 
 function fixture() {

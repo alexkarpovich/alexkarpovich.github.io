@@ -4,6 +4,10 @@
   const read = window.TimeRuntime.createReader(8);
   const icon = new URL("img/icon.svg", window.location.href).href;
 
+  function appKey() {
+    return (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) || "";
+  }
+
   function openCard(t) {
     return t.popup({
       title: "Time tracking",
@@ -38,16 +42,18 @@
     };
     if (state.limitMinutes == null) return summary;
     const full = await t.card("id", "checklists");
-    let inspection = window.TimeEpic.inspectChecklists(full.checklists, full.id, null);
-    let boardCards;
-    if (inspection.unresolvedCount || (inspection.childIds && inspection.childIds.length)) {
-      boardCards = await read(ctx.board + ":cards", function () { return t.cards("id", "shortLink"); });
-      const links = new Map(boardCards.map(function (card) { return [card.shortLink, card.id]; }));
-      inspection = window.TimeEpic.inspectChecklists(full.checklists, full.id, links);
-    }
+    const inspection = await window.TimeRuntime.resolveChecklistInspection(
+      t,
+      full.id,
+      full,
+      true,
+      appKey(),
+      window.TimeEpic
+    );
     if (!inspection.complete) return summary;
     const kids = inspection.childIds;
-    const visible = new Set((boardCards || []).map(function (card) { return card.id; }));
+    const boardCards = await read(ctx.board + ":cards", function () { return t.cards("id", "shortLink"); });
+    const visible = new Set(boardCards.map(function (card) { return card.id; }));
     if (kids.some(function (id) { return !visible.has(id); })) return summary;
     let times;
     try {
