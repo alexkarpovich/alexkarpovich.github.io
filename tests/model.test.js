@@ -14,6 +14,16 @@ function entry(id, ymd, minutes, note, createdAt) {
   };
 }
 
+test("decodes packed time from JSON strings and nested time objects", function () {
+  const packed = model.pack(model.emptyState());
+  packed.e = [["id1", 20261020, 30, 0]];
+  packed.who = [["507f1f77bcf86cd799439011", "Author"]];
+  const fromString = model.decode(JSON.stringify(packed));
+  assert.equal(fromString.entries[0].minutes, 30);
+  const fromWrapper = model.decode({ time: packed });
+  assert.equal(fromWrapper.entries[0].minutes, 30);
+});
+
 test("packs and reads entries, limit, child cards and createdAt", function () {
   const state = model.emptyState();
   state.limitMinutes = 2400;

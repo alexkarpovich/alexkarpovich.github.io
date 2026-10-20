@@ -97,22 +97,23 @@
     ]);
     const listNames = new Map((lists || []).map(function (list) { return [list.id, list.name]; }));
     const shortLinks = new Map((cardList || []).map(function (card) { return [card.shortLink, card.id]; }));
-    const times = await window.TimeRuntime.mapPool(cardList, 8, function (card) {
-      return t.get(card.id, "shared", "time", null);
+    const nameIndex = window.TimeEpic.uniqueNameIndex(cardList);
+    const boardTimes = await window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel);
+    const states = cardList.map(function (card) {
+      return window.TimeModel.decode(boardTimes.timeById.get(card.id));
     });
-    const states = times.map(function (raw) { return window.TimeModel.decode(raw); });
     const needsLists = cardList.some(function (card, index) {
       if (states[index].limitMinutes == null) return false;
-      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks);
+      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
       return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
     const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
-      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks);
+      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
       let kids = fromClient.complete ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
-        const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks);
+        const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks, nameIndex);
         if (parsed.complete) kids = parsed.childIds;
       }
       return {

@@ -42,27 +42,26 @@
     };
     if (state.limitMinutes == null) return summary;
     const full = await t.card("id", "checklists");
+    const board = await read(ctx.board + ":board-times", function () {
+      return window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel);
+    });
+    const shortLinks = new Map(board.boardCards.map(function (card) { return [card.shortLink, card.id]; }));
+    const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
     const inspection = await window.TimeRuntime.resolveChecklistInspection(
       t,
       full.id,
       full,
       true,
       appKey(),
-      window.TimeEpic
+      window.TimeEpic,
+      { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
     );
     if (!inspection.complete) return summary;
     const kids = inspection.childIds;
-    const boardCards = await read(ctx.board + ":cards", function () { return t.cards("id", "shortLink"); });
-    const visible = new Set(boardCards.map(function (card) { return card.id; }));
+    const visible = new Set(board.boardCards.map(function (card) { return card.id; }));
     if (kids.some(function (id) { return !visible.has(id); })) return summary;
-    let times;
-    try {
-      times = await Promise.all(kids.map(function (id) {
-        return read(ctx.board + ":" + id, function () { return t.get(id, "shared", "time", null); });
-      }));
-    } catch (error) { return summary; }
-    summary.spentMinutes = times.reduce(function (sum, raw) {
-      return sum + window.TimeModel.totalMinutes(window.TimeModel.decode(raw).entries);
+    summary.spentMinutes = kids.reduce(function (sum, id) {
+      return sum + window.TimeModel.totalMinutes(window.TimeModel.decode(board.timeById.get(id)).entries);
     }, 0);
     summary.kidsKnown = true;
     return summary;

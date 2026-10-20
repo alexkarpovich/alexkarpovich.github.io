@@ -69,14 +69,26 @@
     return JSON.stringify({ time: packed }).length;
   }
 
+  function normalizePackedRaw(raw) {
+    if (raw == null) return null;
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch (error) { return null; }
+    }
+    if (typeof raw !== "object") return null;
+    if (Array.isArray(raw.e)) return raw;
+    if (raw.time) return normalizePackedRaw(raw.time);
+    return null;
+  }
+
   function decode(raw) {
     const state = emptyState();
-    if (!raw || typeof raw !== "object") return state;
-    if (Number.isFinite(Number(raw.lim)) && Number(raw.lim) > 0) state.limitMinutes = Math.round(Number(raw.lim));
-    if (Array.isArray(raw.kids)) state.kids = raw.kids.filter(function (id) { return typeof id === "string" && id; });
-    const who = Array.isArray(raw.who) ? raw.who : [];
-    if (!Array.isArray(raw.e)) return state;
-    raw.e.forEach(function (row) {
+    const packed = normalizePackedRaw(raw) || (raw && typeof raw === "object" ? raw : null);
+    if (!packed) return state;
+    if (Number.isFinite(Number(packed.lim)) && Number(packed.lim) > 0) state.limitMinutes = Math.round(Number(packed.lim));
+    if (Array.isArray(packed.kids)) state.kids = packed.kids.filter(function (id) { return typeof id === "string" && id; });
+    const who = Array.isArray(packed.who) ? packed.who : [];
+    if (!Array.isArray(packed.e)) return state;
+    packed.e.forEach(function (row) {
       if (!Array.isArray(row) || row.length < 4) return;
       const person = who[row[3]] || [];
       const minutes = Math.round(Number(row[2]));
@@ -170,6 +182,7 @@
     MAX_PLUGIN_CHARS: MAX_PLUGIN_CHARS,
     emptyState: emptyState,
     pack: pack,
+    normalizePackedRaw: normalizePackedRaw,
     decode: decode,
     pluginChars: pluginChars,
     createEntry: createEntry,

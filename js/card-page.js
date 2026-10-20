@@ -197,48 +197,35 @@
     const settings = window.TimeDuration.normalizeSettings(rawSettings);
     currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
     const state = window.TimeModel.decode(raw);
+    const board = await window.TimeRuntime.loadBoardTimes(client, appKey(), window.TimeModel);
+    const shortLinks = new Map(board.boardCards.map(function (item) { return [item.shortLink, item.id]; }));
+    const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
     const inspection = await window.TimeRuntime.resolveChecklistInspection(
       t,
       card.id,
       card,
       state.limitMinutes != null || !!(card.checklists && card.checklists.length),
       appKey(),
-      window.TimeEpic
+      window.TimeEpic,
+      { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
     );
     // Rendering never writes pluginData: opening a card cannot overwrite a log.
 
     const write = canWriteCard();
     const kids = inspection.childIds || [];
-    let children = kids.map(function (id) {
-      return { id: id, name: "Card", url: "", minutes: 0 };
+    const byId = new Map(board.boardCards.map(function (item) { return [item.id, item]; }));
+    const children = kids.map(function (id) {
+      const info = byId.get(id);
+      const packed = board.timeById.get(id);
+      const decoded = window.TimeModel.decode(packed);
+      return {
+        id: id,
+        name: info ? info.name : "Unavailable card",
+        url: info ? info.url : "",
+        minutes: window.TimeModel.totalMinutes(decoded.entries),
+        missing: !info
+      };
     });
-    if (kids.length) {
-      const boardCards = await client.cards("id", "name", "url");
-      const byId = new Map(boardCards.map(function (item) { return [item.id, item]; }));
-      const kidSet = new Set(kids);
-      const onBoard = boardCards.filter(function (item) { return kidSet.has(item.id); });
-      const childTimes = await window.TimeRuntime.mapPool(onBoard, 8, async function (item) {
-        try {
-          const raw = await client.get(item.id, "shared", "time", null);
-          return { id: item.id, raw: raw };
-        } catch (error) {
-          return { id: item.id, raw: null, error: true };
-        }
-      });
-      const timeById = new Map(childTimes.map(function (row) { return [row.id, row]; }));
-      children = kids.map(function (id) {
-        const info = byId.get(id);
-        const loaded = timeById.get(id);
-        const decoded = window.TimeModel.decode(loaded && loaded.raw);
-        return {
-          id: id,
-          name: info ? info.name : "Unavailable card",
-          url: info ? info.url : "",
-          minutes: window.TimeModel.totalMinutes(decoded.entries),
-          missing: !info || !loaded || loaded.error
-        };
-      });
-    }
 
     return {
       cardId: card.id,

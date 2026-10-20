@@ -49,6 +49,21 @@ test("reads card id from nested checklist item card objects", function () {
   });
 });
 
+test("matches checklist item titles to uniquely named board cards", function () {
+  const byName = epic.uniqueNameIndex([
+    { id: "child", name: "wefwe" },
+    { id: "epic", name: "cccc" }
+  ]);
+  const parsed = epic.childIdsFromChecklists(
+    [{ checkItems: [{ name: "wefwe", state: "incomplete" }] }],
+    "epic",
+    null,
+    byName
+  );
+  assert.deepEqual(parsed.childIds, ["child"]);
+  assert.equal(parsed.unlinkedCount, 0);
+});
+
 function fixture() {
   return [
     {

@@ -13,7 +13,23 @@
     return "";
   }
 
-  function childIdsFromChecklists(checklists, selfId, shortLinkToId) {
+  function uniqueNameIndex(cards) {
+    const counts = new Map();
+    (cards || []).forEach(function (card) {
+      if (!card || !card.name) return;
+      const key = String(card.name).trim().toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    const index = new Map();
+    (cards || []).forEach(function (card) {
+      if (!card || !card.id || !card.name) return;
+      const key = String(card.name).trim().toLowerCase();
+      if (counts.get(key) === 1) index.set(key, String(card.id));
+    });
+    return index;
+  }
+
+  function childIdsFromChecklists(checklists, selfId, shortLinkToId, cardsByName) {
     const ids = [];
     const seen = new Set();
     let unlinked = 0;
@@ -22,11 +38,16 @@
       (list.checkItems || []).forEach(function (item) {
         let id = cardIdFromCheckItem(item);
         if (!id && item && item.name) {
-          const match = String(item.name).match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i);
+          const name = String(item.name);
+          const match = name.match(/(?:^|[\s(])(?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)(?=[/\s)#?]|$)/i)
+            || name.match(/\]\((?:https?:\/\/)?trello\.com\/c\/([A-Za-z0-9]+)/i);
           if (match) {
             if (shortLinkToId) id = shortLinkToId.get(match[1]) || "";
             if (!id) unresolved++;
           }
+        }
+        if (!id && item && item.name && cardsByName) {
+          id = cardsByName.get(String(item.name).trim().toLowerCase()) || "";
         }
         if (!id) {
           unlinked += 1;
@@ -41,12 +62,12 @@
   }
 
   // Trello sometimes returns checklist shells without items. Treat that as unknown.
-  function inspectChecklists(checklists, selfId, shortLinkToId) {
+  function inspectChecklists(checklists, selfId, shortLinkToId, cardsByName) {
     if (!Array.isArray(checklists)) return { complete: false, childIds: null, unlinkedCount: 0 };
     if (checklists.length === 0) return { complete: true, childIds: [], unlinkedCount: 0 };
     const missingItems = checklists.some(function (list) { return !list || !Array.isArray(list.checkItems); });
     if (missingItems) return { complete: false, childIds: null, unlinkedCount: 0 };
-    const parsed = childIdsFromChecklists(checklists, selfId, shortLinkToId);
+    const parsed = childIdsFromChecklists(checklists, selfId, shortLinkToId, cardsByName);
     return { complete: parsed.unresolvedCount === 0, childIds: parsed.childIds, unlinkedCount: parsed.unlinkedCount, unresolvedCount: parsed.unresolvedCount };
   }
 
@@ -65,6 +86,7 @@
 
   return {
     cardIdFromCheckItem: cardIdFromCheckItem,
+    uniqueNameIndex: uniqueNameIndex,
     childIdsFromChecklists: childIdsFromChecklists,
     inspectChecklists: inspectChecklists,
     needsRemoteChecklists: needsRemoteChecklists,

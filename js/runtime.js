@@ -96,24 +96,81 @@
     } : {};
   }
 
-  async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi) {
+  function normalizePacked(modelApi, raw) {
+    if (modelApi && modelApi.normalizePackedRaw) return modelApi.normalizePackedRaw(raw);
+    return raw && typeof raw === "object" ? raw : null;
+  }
+
+  async function restCredentials(client, appKey) {
+    if (!appKey) return null;
+    try {
+      const api = await client.getRestApi();
+      if (!(await api.isAuthorized())) return null;
+      return { appKey: appKey, token: await api.getToken() };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function readSharedTime(client, cardId, rest, modelApi) {
+    try {
+      let packed = normalizePacked(modelApi, await client.get(cardId, "shared", "time", null));
+      if (packed) return packed;
+      const shared = await client.get(cardId, "shared");
+      packed = normalizePacked(modelApi, shared && shared.time);
+      if (packed) return packed;
+      if (!rest || !rest.appKey || !rest.token) return null;
+      const rows = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/pluginData?key=" + encodeURIComponent(rest.appKey) + "&token=" + encodeURIComponent(rest.token));
+      if (!Array.isArray(rows)) return null;
+      for (let i = 0; i < rows.length; i += 1) {
+        packed = normalizePacked(modelApi, rows[i].value);
+        if (packed) return packed;
+      }
+    } catch (error) { /* unreadable card */ }
+    return null;
+  }
+
+  async function loadBoardTimes(client, appKey, modelApi) {
+    const boardCards = await client.cards("id", "name", "url", "shortLink");
+    const rest = await restCredentials(client, appKey);
+    const packedList = await mapPool(boardCards, 8, function (card) {
+      return readSharedTime(client, card.id, rest, modelApi);
+    });
+    const timeById = new Map(boardCards.map(function (card, index) {
+      return [card.id, packedList[index]];
+    }));
+    return { boardCards: boardCards, timeById: timeById, rest: rest };
+  }
+
+  async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi, boardContext) {
     let checklists = (card && card.checklists) || [];
-    let local = epicApi.inspectChecklists(checklists, cardId, null);
+    let shortLinks = boardContext && boardContext.shortLinks;
+    let nameIndex = boardContext && boardContext.nameIndex;
+    if (!shortLinks || !nameIndex) {
+      const cards = boardContext && boardContext.boardCards
+        ? boardContext.boardCards
+        : await client.cards("id", "name", "shortLink");
+      if (!shortLinks) {
+        shortLinks = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
+      }
+      if (!nameIndex) nameIndex = epicApi.uniqueNameIndex(cards);
+    }
+    function inspect() {
+      return epicApi.inspectChecklists(checklists, cardId, shortLinks, nameIndex);
+    }
+    let local = inspect();
     const wantRemote = allowRemote && appKey && epicApi.needsRemoteChecklists(local, checklists);
     if (wantRemote) {
       try {
-        const api = await client.getRestApi();
-        if (await api.isAuthorized()) {
-          const token = await api.getToken();
-          checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(token));
-          local = epicApi.inspectChecklists(checklists, cardId, null);
+        const rest = await restCredentials(client, appKey);
+        if (rest) {
+          checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state,idCard&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
+          local = inspect();
         }
       } catch (error) { /* Keep the unknown state; never assume missing time is zero. */ }
     }
     if (local.unresolvedCount) {
-      const cards = await client.cards("id", "shortLink");
-      const links = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
-      local = epicApi.inspectChecklists(checklists, cardId, links);
+      local = inspect();
     }
     return local;
   }
@@ -124,6 +181,8 @@
     coalesce: coalesce,
     fetchJson: fetchJson,
     clientOptions: clientOptions,
+    readSharedTime: readSharedTime,
+    loadBoardTimes: loadBoardTimes,
     resolveChecklistInspection: resolveChecklistInspection
   };
 });
