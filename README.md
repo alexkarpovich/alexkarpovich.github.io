@@ -52,7 +52,7 @@ Production-страницы содержат один минифицирован
 
 ## Установка на реальную доску
 
-1. Разместить **содержимое `dist/`** на доступном HTTPS-хостинге после `npm ci && npm run check`. Для GitHub Pages: Settings → Pages → Source → **GitHub Actions**. В репозитории есть `.github/workflows/pages.yml`: pull request проходит проверки; push в `main` или ручной запуск на `main` дополнительно публикует собранный `dist/`. Workflow основан на [официальном шаблоне Pages](https://github.com/actions/starter-workflows/blob/main/pages/static.yml). Проверить успешный deployment и открытие `index.html`, `card.html`, `report.html`, `settings.html`, `auth-complete.html` и файлов `assets/` без 404. Корень исходников через Deploy from a branch не использует минификацию.
+1. Разместить **содержимое `dist/`** на доступном HTTPS-хостинге после `npm ci && npm run check`. Для GitHub Pages: Settings → Pages → Source → **GitHub Actions**. В репозитории есть `.github/workflows/pages.yml`: pull request проходит проверки; push в `main` или ручной запуск на `main` дополнительно публикует собранный `dist/`. Workflow основан на [официальном шаблоне Pages](https://github.com/actions/starter-workflows/blob/main/pages/static.yml). Проверить успешный deployment и открытие `index.html`, `card.html`, `report.html`, `settings.html`, `auth-complete.html`, `privacy.html`, `about.html` и файлов `assets/` без 404. Корень исходников через Deploy from a branch не использует минификацию.
 2. Текущий `origin` проекта — `alexkarpovich/alexkarpovich.github.io`. При публикации корня этого репозитория без custom domain ожидаемый connector URL: **`https://alexkarpovich.github.io/index.html`**. Для обычного project repository адрес имеет вид `https://USER.github.io/REPO/index.html`. Фактический адрес проверить в Settings → Pages.
 3. В [Trello Apps Admin](https://trello.com/apps/admin) нажать **New**, выбрать использование Power-Up capabilities, указать имя, Workspace, email, автора и **Iframe Connector URL**. При первом входе портал запрашивает Joint Development Agreement. [Настройка приложения](https://developer.atlassian.com/cloud/trello/guides/power-ups/managing-apps/).
 4. Во вкладке **Capabilities** включить ровно эти обработчики:
@@ -118,7 +118,7 @@ Production-страницы содержат один минифицирован
 4. Подготовить Power-Up ID из URL страницы администрирования и connector URL; отправить заявку через [Trello developer support](https://go.trello.com/dev-support).
 5. Пройти review, исправить замечания и согласовать запуск. Документация указывает ориентир **две недели или больше**, без гарантии срока. После одобрения Trello включает публичную доступность; каталог использует адрес `https://trello.com/power-ups/POWER_UP_ID`. [Официальная процедура](https://developer.atlassian.com/cloud/trello/guides/power-ups/submitting-your-power-up/).
 
-В репозитории пока нет готовой Privacy Policy с реквизитами владельца, контактной информации для поддержки и материалов листинга. Их необходимо подготовить перед заявкой. Локальная оптимизация не означает одобрение Trello или уже выполненную публикацию.
+Черновик Privacy Policy: [privacy.html](privacy.html) (перед деплоем замените `SUPPORT_EMAIL`). Все поля для Apps Admin и формы review: [SUBMISSION.md](SUBMISSION.md). Остаётся загрузить скриншоты/GIF в портал и пройти проверку на реальной доске.
 
 ## Архитектура и ограничения
 

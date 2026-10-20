@@ -94,8 +94,6 @@ button, input, select { font: inherit; color: inherit; }
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-#app { padding: 10px 12px 16px; }
-
 /* Shared control sizing (Power-Up iframes + preview) */
 .trello-power-up input:not([type="checkbox"]),
 .trello-power-up select,

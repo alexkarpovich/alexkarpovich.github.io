@@ -7,7 +7,7 @@ import { transform } from "esbuild";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
-const pages = ["index", "card", "report", "settings", "auth-complete", "about", "preview"];
+const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
 const budgets = { index: 26000, card: 40000, report: 40000, settings: 22000, "auth-complete": 2000, preview: 42000 };
 const manifest = { pages: {}, assets: {} };
 
@@ -69,7 +69,7 @@ for (const name of await readdir(out)) {
   if (!name.endsWith(".html")) continue;
   const html = await readFile(path.join(out, name), "utf8");
   for (const match of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
-    if (/^(https?:|#)/.test(match[1])) continue;
+    if (/^(https?:|mailto:|tel:|#)/.test(match[1])) continue;
     await readFile(path.join(out, match[1].split("?")[0]));
   }
 }

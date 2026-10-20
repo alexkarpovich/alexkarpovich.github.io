@@ -95,10 +95,10 @@
       return window.TimeRuntime.isReadAuthorized(t).then(function (authorized) {
         if (authorized) return;
         // Must not call authorize() here (popup blockers). Open settings iframe; user clicks Allow there.
-        return t.popup({
-          title: "Time tracking — one-time setup",
+        return t.modal({
+          title: "Time tracking — getting started",
           url: "./settings.html",
-          height: 420
+          accentColor: "#0079BF"
         });
       });
     },
