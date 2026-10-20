@@ -45,7 +45,8 @@ test("uses board settings for a day and a week", function () {
   assert.deepEqual(duration.normalizeSettings({ hoursPerDay: 0, daysPerWeek: 9, weekStartsOn: 0 }), {
     hoursPerDay: 1,
     daysPerWeek: 7,
-    weekStartsOn: 0
+    weekStartsOn: 0,
+    excludedDates: []
   });
 });
 

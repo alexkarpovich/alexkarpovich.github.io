@@ -5,6 +5,40 @@ const aggregate = require("../js/aggregate");
 const badgeApi = require("../js/badges");
 const excel = require("../js/excel");
 const duration = require("../js/duration");
+const { crc32 } = require("node:zlib");
+
+async function readWorkbook(blob) {
+  assert.equal(blob.type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  const end = bytes.length - 22;
+  assert.equal(bytes.readUInt32LE(end), 0x06054b50, "XLSX is a ZIP archive");
+  const count = bytes.readUInt16LE(end + 10);
+  const centralStart = bytes.readUInt32LE(end + 16);
+  let central = centralStart;
+  const files = new Map();
+  for (let i = 0; i < count; i++) {
+    assert.equal(bytes.readUInt32LE(central), 0x02014b50);
+    const size = bytes.readUInt32LE(central + 20);
+    const nameLength = bytes.readUInt16LE(central + 28);
+    const name = bytes.toString("utf8", central + 46, central + 46 + nameLength);
+    const local = bytes.readUInt32LE(central + 42);
+    assert.equal(bytes.readUInt32LE(local), 0x04034b50);
+    assert.equal(bytes.readUInt16LE(local + 8), 0, "stored ZIP entry");
+    const dataStart = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
+    assert.equal(bytes.toString("utf8", local + 30, local + 30 + nameLength), name);
+    assert.equal(bytes.readUInt32LE(local + 18), size);
+    assert.ok(dataStart + size <= centralStart);
+    const data = bytes.subarray(dataStart, dataStart + size);
+    assert.equal(crc32(data), bytes.readUInt32LE(central + 16), name + " CRC");
+    assert.equal(crc32(data), bytes.readUInt32LE(local + 14));
+    files.set(name, data.toString("utf8"));
+    central += 46 + nameLength + bytes.readUInt16LE(central + 30) + bytes.readUInt16LE(central + 32);
+  }
+  assert.equal(central, end);
+  assert.equal(central - centralStart, bytes.readUInt32LE(end + 12));
+  assert.deepEqual([...files.keys()].sort(), ["[Content_Types].xml", "_rels/.rels", "xl/_rels/workbook.xml.rels", "xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml"].sort());
+  return files;
+}
 
 test("reads child cards from checklist links and ignores loose items", function () {
   const parsed = epic.childIdsFromChecklists([
@@ -207,7 +241,7 @@ test("badge text shows logged time and epic remainder", function () {
   assert.equal(badgeList(0, 480, null)[0].text, "limit 1d");
 });
 
-test("excel export escapes text and keeps numeric minutes", function () {
+test("XLSX export contains valid ZIP entries, escapes text and keeps numeric minutes", async function () {
   const report = aggregate.buildReport(fixture(), {
     from: "2026-10-19",
     to: "2026-10-25",
@@ -217,14 +251,20 @@ test("excel export escapes text and keeps numeric minutes", function () {
   report.groups[0].rows[0].cardName = "Макеты <script>";
   report.entries[0].note = "=1+1";
   report.labelText = aggregate.labelText;
-  const xml = excel.buildWorkbook(report, duration.formatDuration, { hoursPerDay: 8, daysPerWeek: 5, weekStartsOn: 1 });
-  assert.match(xml, /ss:Name="Report"/);
-  assert.match(xml, /ss:Name="Entries"/);
-  assert.match(xml, /ss:Name="Epics"/);
-  assert.match(xml, /Макеты &lt;script&gt;/);
-  assert.match(xml, /'=1\+1/);
-  assert.match(xml, /ss:Type="Number">970</);
-  assert.match(xml, /Over limit|Within limit/);
+  const files = await readWorkbook(excel.buildWorkbook(report, duration.formatDuration, { hoursPerDay: 8, daysPerWeek: 5, weekStartsOn: 1 }));
+  const workbook = files.get("xl/workbook.xml");
+  assert.match(workbook, /sheet name="Report"/);
+  assert.match(workbook, /sheet name="Entries"/);
+  assert.match(workbook, /sheet name="Epics"/);
+  assert.match(files.get("_rels/.rels"), /Target="xl\/workbook.xml"/);
+  for (let i = 1; i <= 3; i++) {
+    assert.ok(files.get("xl/_rels/workbook.xml.rels").includes('Target="worksheets/sheet' + i + '.xml"'));
+    assert.ok(files.get("[Content_Types].xml").includes('PartName="/xl/worksheets/sheet' + i + '.xml"'));
+  }
+  assert.match(files.get("xl/worksheets/sheet1.xml"), /Макеты &lt;script&gt;/);
+  assert.match(files.get("xl/worksheets/sheet2.xml"), /'=1\+1/);
+  assert.match(files.get("xl/worksheets/sheet1.xml"), /t="n"><v>970<\/v>/);
+  assert.match(files.get("xl/worksheets/sheet3.xml"), /Over limit|Within limit/);
 });
 
 test("unresolved Trello URLs are unknown, not zero-time children", function () {
@@ -242,11 +282,11 @@ test("unavailable children cannot produce an optimistic epic remainder", functio
   assert.equal(result.epics[0].remainingMinutes, null);
 });
 
-test("Excel headers are strings and control characters cannot break XML", function () {
+test("XLSX headers are strings and control characters cannot break worksheet XML", async function () {
   const result = aggregate.buildReport(fixture(), { from: "2026-10-01", to: "2026-10-31" });
   result.entries[0].note = "bad\u0000text\u000b!";
-  const xml = excel.buildWorkbook(result, duration.formatDuration, {});
-  assert.doesNotMatch(xml, /NaN|[\u0000\u000b]/);
-  assert.match(xml, /ss:Type="String">Minutes</);
-  assert.match(xml, /badtext!/);
+  const files = await readWorkbook(excel.buildWorkbook(result, duration.formatDuration, {}));
+  files.forEach(function (xml) { assert.doesNotMatch(xml, /NaN|[\u0000\u000b]/); });
+  assert.match(files.get("xl/worksheets/sheet1.xml"), /t="inlineStr"><is><t xml:space="preserve">Minutes<\/t>/);
+  assert.match(files.get("xl/worksheets/sheet2.xml"), /badtext!/);
 });
