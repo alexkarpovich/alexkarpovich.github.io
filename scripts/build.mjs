@@ -8,7 +8,7 @@ import { transform } from "esbuild";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
-const budgets = { index: 26000, card: 40000, report: 40000, settings: 22000, "auth-complete": 2000, preview: 42000 };
+const budgets = { index: 26000, card: 40000, report: 41000, settings: 22000, "auth-complete": 2000, preview: 46000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.

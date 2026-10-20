@@ -57,15 +57,15 @@
 
   function renderReport() {
     if (!view) return;
-    report = window.TimeAggregate.buildReport(cards, view.filters());
+    report = window.TimeAggregate.buildReport(cards, Object.assign({}, view.filters(), { settings: settings }));
     view.update(report, notice);
   }
 
   function exportExcel() {
     if (!report) return;
     report.labelText = window.TimeAggregate.labelText;
-    const xml = window.TimeExcel.buildWorkbook(report, window.TimeDuration.formatDuration, settings);
-    window.TimeDom.download("time-report-" + report.from + "_" + report.to + ".xml", xml, "application/xml;charset=utf-8");
+    const workbook = window.TimeExcel.buildWorkbook(report, window.TimeDuration.formatDuration, settings);
+    window.TimeDom.download("time-report-" + report.from + "_" + report.to + ".xlsx", workbook);
   }
 
   function paintBanner() {
@@ -106,8 +106,7 @@
     const states = cardList.map(function (card) {
       return window.TimeModel.decode(boardTimes.timeById.get(card.id));
     });
-    const needsLists = cardList.some(function (card, index) {
-      if (states[index].limitMinutes == null) return false;
+    const needsLists = cardList.some(function (card) {
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
       return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
@@ -115,8 +114,7 @@
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
-      const needsRemote = state.limitMinutes != null &&
-        window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
+      const needsRemote = window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
       let kids = fromClient.complete && !needsRemote ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
         const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks, nameIndex);
@@ -132,7 +130,7 @@
         }),
         entries: state.entries,
         limitMinutes: state.limitMinutes,
-        kids: state.limitMinutes != null ? kids : null,
+        kids: kids,
         missing: boardTimes.unreadableIds.has(card.id)
       };
     });

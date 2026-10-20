@@ -156,6 +156,29 @@
     return true;
   }
 
+  function estimateFinish(remaining, entries, from, to, settings) {
+    if (remaining <= 0 || !entries.length) return "";
+    const daily = new Map();
+    entries.forEach(function (entry) {
+      let day = String(entry.ymd);
+      if (day.length === 8) day = day.slice(0, 4) + "-" + day.slice(4, 6) + "-" + day.slice(6, 8);
+      daily.set(day, (daily.get(day) || 0) + entry.minutes);
+    });
+    const workday = function (date) {
+      if (date.getUTCDay() === 0 || date.getUTCDay() === 6) return false;
+      const ymd = date.toISOString().slice(0, 10);
+      return !(settings && settings.excludedDates || []).includes(ymd);
+    };
+    let date = new Date(from + "T12:00:00Z"), end = new Date(to + "T12:00:00Z"), days = 0;
+    while (date <= end) { if (workday(date)) days++; date.setUTCDate(date.getUTCDate() + 1); }
+    const average = Array.from(daily.values()).reduce(function (a, b) { return a + b; }, 0) / Math.max(days, 1);
+    if (!average) return "";
+    const needed = Math.ceil(remaining / average);
+    date = new Date(to + "T12:00:00Z"); let added = 0;
+    while (added < needed && added < 3650) { date.setUTCDate(date.getUTCDate() + 1); if (workday(date)) added++; }
+    return date.toISOString().slice(0, 10);
+  }
+
   // Trello's iframe API often omits idCard or returns empty checkItems until REST is used.
   function needsRemoteChecklists(inspection, checklists) {
     if (!inspection || !inspection.complete) return true;
@@ -173,6 +196,7 @@
     childIdsFromChecklists: childIdsFromChecklists,
     inspectChecklists: inspectChecklists,
     needsRemoteChecklists: needsRemoteChecklists,
-    sameIds: sameIds
+    sameIds: sameIds,
+    estimateFinish: estimateFinish
   };
 });

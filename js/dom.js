@@ -22,7 +22,7 @@
   }
 
   function download(filename, text, type) {
-    const blob = new Blob(["\uFEFF" + text], { type: type || "application/vnd.ms-excel;charset=utf-8" });
+    const blob = text instanceof Blob ? text : new Blob(["\uFEFF" + text], { type: type || "application/vnd.ms-excel;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = filename;

@@ -90,7 +90,7 @@
       type: "button",
       class: "button mod-primary",
       onclick: function () { handlers.onExport(); }
-    }, "Download Excel XML");
+    }, "Download Excel");
 
     rootNode.appendChild(h("div", { class: "report" }, [
       h("div", { class: "toolbar" }, [
@@ -188,10 +188,17 @@
       epicHost.hidden = !report.epics.length;
       if (epicHost.hidden) return;
       epicHost.appendChild(h("h2", null, "Epics"));
-      epicHost.appendChild(h("p", { class: "hint" }, "Remaining time uses all logged time on child checklist cards, not just this period. Time on the epic card itself is excluded from the limit."));
+      epicHost.appendChild(h("p", { class: "hint" }, "Child-card time in the selected period; epic-card time is excluded."));
       const ebody = h("tbody");
       report.epics.forEach(function (epic) {
         const name = epic.cardUrl ? h("a", { href: epic.cardUrl, target: "_blank", rel: "noopener" }, epic.cardName) : epic.cardName;
+        function childTree(items) {
+          return h("ul", { class: "epic-child-tree" }, items.map(function (child) {
+            const title = child.url ? h("a", { href: child.url, target: "_blank", rel: "noopener" }, child.name) : child.name;
+            return h("li", null, [h("span", null, title + " · " + format(child.minutes, handlers.settings())), child.children.length ? childTree(child.children) : null]);
+          }));
+        }
+        const epicName = h("div", { class: "epic-name" }, [name, epic.children.length ? h("details", null, [h("summary", null, "Show child cards"), childTree(epic.children)]) : null]);
         let remain = "Links not loaded";
         let tone = "muted";
         if (epic.known) {
@@ -204,15 +211,16 @@
           }
         }
         ebody.appendChild(h("tr", null, [
-          h("td", null, name),
+          h("td", null, epicName),
           h("td", null, labelDots(epic.labels)),
           h("td", { class: "num" }, format(epic.limitMinutes, handlers.settings())),
           h("td", { class: "num" }, epic.known ? format(epic.spentMinutes, handlers.settings()) : "—"),
-          h("td", { class: "num " + tone }, remain)
+          h("td", { class: "num " + tone }, remain),
+          h("td", null, epic.estimateDate || "—")
         ]));
       });
       epicHost.appendChild(h("table", null, [
-        h("thead", null, h("tr", null, ["Epic", "Labels", "Limit", "Spent", "Remaining"].map(function (title) {
+          h("thead", null, h("tr", null, ["Epic", "Labels", "Limit", "Spent in period", "Remaining", "Estimated finish"].map(function (title) {
           return h("th", null, title);
         }))),
         ebody

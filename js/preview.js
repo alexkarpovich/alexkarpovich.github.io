@@ -138,8 +138,8 @@
     onExport: function () {
       const current = currentReport();
       current.labelText = window.TimeAggregate.labelText;
-      const xml = window.TimeExcel.buildWorkbook(current, window.TimeDuration.formatDuration, settings);
-      window.TimeDom.download("uchet-vremeni-" + current.from + "_" + current.to + ".xml", xml, "application/xml;charset=utf-8");
+      const workbook = window.TimeExcel.buildWorkbook(current, window.TimeDuration.formatDuration, settings);
+      window.TimeDom.download("uchet-vremeni-" + current.from + "_" + current.to + ".xlsx", workbook);
     }
   });
 

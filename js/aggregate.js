@@ -154,18 +154,28 @@
           children: []
         };
       }
-      let spent = 0;
-      const children = card.kids.map(function (id) {
-        const child = byId.get(id);
-        const minutes = child ? (child.entries || []).reduce(function (sum, entry) { return sum + entry.minutes; }, 0) : 0;
-        spent += minutes;
-        return {
-          id: id,
-          name: child && !child.missing ? child.name : "Unavailable card",
-          minutes: minutes,
-          missing: !child || !!child.missing
-        };
-      });
+      const visited = new Set([card.id]);
+      const periodEntries = [];
+      function descendants(parent, depth) {
+        return (parent.kids || []).map(function (id) {
+          const child = byId.get(id);
+          if (!child || child.missing || visited.has(id)) return {
+            id: id, name: child && child.name || "Unavailable card", minutes: 0, missing: true, depth: depth, children: []
+          };
+          visited.add(id);
+          const nested = descendants(child, depth + 1);
+          const isEpic = Array.isArray(child.kids);
+          const entries = isEpic ? [] : (child.entries || []).filter(function (entry) { return entryInRange(entry, from, to); });
+          entries.forEach(function (entry) { periodEntries.push(entry); });
+          const own = entries.reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
+          const minutes = own + nested.reduce(function (sum, item) { return sum + item.minutes; }, 0);
+          return { id: id, name: child.name, url: child.url || "", minutes: minutes, missing: false, depth: depth, children: nested };
+        });
+      }
+      const children = descendants(card, 1);
+      const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
+      const hasPeriodActivity = periodEntries.length > 0;
+      const estimate = estimateFinish(card.limitMinutes - spent, periodEntries, from, to, filters.settings);
       const known = !children.some(function (child) { return child.missing; });
       return {
         cardId: card.id,
@@ -175,11 +185,12 @@
         limitMinutes: card.limitMinutes,
         spentMinutes: known ? spent : null,
         remainingMinutes: known ? card.limitMinutes - spent : null,
+        estimateDate: known && hasPeriodActivity ? estimate : "",
         known: known,
         children: children
       };
     }).filter(function (epic) {
-      return epic.children.length > 0;
+      return epic.children.length > 0 && epic.children.some(function (child) { return child.minutes > 0 || child.children.some(function (nested) { return nested.minutes > 0; }); });
     }).sort(function (a, b) { return a.cardName.localeCompare(b.cardName, "en"); });
 
     const cardIds = new Set();
@@ -201,6 +212,39 @@
         return { id: author.id, name: author.name };
       }).sort(function (a, b) { return a.name.localeCompare(b.name, "en"); })
     };
+  }
+
+  // Estimate from the selected period's average per working day.
+  function estimateFinish(remaining, entries, from, to, settings) {
+    if (remaining <= 0 || !entries.length) return "";
+    const daily = new Map();
+    entries.forEach(function (entry) {
+      const day = ymdOf(entry);
+      daily.set(day, (daily.get(day) || 0) + entry.minutes);
+    });
+    let cursor = new Date(from + "T12:00:00Z");
+    const end = new Date(to + "T12:00:00Z");
+    let workdays = 0;
+    while (cursor <= end) {
+      if (isWorkingDay(cursor, settings)) workdays++;
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    const average = Array.from(daily.values()).reduce(function (a, b) { return a + b; }, 0) / Math.max(1, workdays);
+    if (!average) return "";
+    const needed = Math.ceil(remaining / average);
+    cursor = new Date(to + "T12:00:00Z");
+    let added = 0;
+    while (added < needed && added < 3650) {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      if (isWorkingDay(cursor, settings)) added++;
+    }
+    return cursor.toISOString().slice(0, 10);
+  }
+
+  function isWorkingDay(date, settings) {
+    if (date.getUTCDay() === 0 || date.getUTCDay() === 6) return false;
+    const ymd = date.toISOString().slice(0, 10);
+    return !(settings && settings.excludedDates || []).includes(ymd);
   }
 
   return {

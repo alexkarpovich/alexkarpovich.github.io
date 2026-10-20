@@ -465,6 +465,15 @@ button:disabled,
 }
 
 .epic { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.epic-heading { display: flex; align-items: center; gap: 6px; }
+.help-tip { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--muted); border-radius: 50%; font-size: 10px; line-height: 1; cursor: help; color: var(--muted); text-transform: none; }
+.child-details { margin-top: 6px; }
+.child-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.epic-name details { margin-top: 3px; font-size: 11px; }
+.epic-name summary { cursor: pointer; color: var(--muted); }
+.epic-child-tree { margin: 3px 0 0 14px; padding-left: 12px; }
+.excluded-date-list { display: grid; gap: 4px; margin-top: 6px; }
+.excluded-date { display: flex; align-items: center; justify-content: space-between; max-width: 240px; font-size: 13px; }
 .epic h2, .epic-report h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
 .remain { font-weight: 600; font-size: 14px; margin: 4px 0; }
 .ok { color: var(--green); }

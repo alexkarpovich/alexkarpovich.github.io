@@ -70,9 +70,9 @@
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit]),
       limitError
     ]);
+    const epicHelp = h("span", { class: "help-tip", tabindex: "0", role: "img", "aria-label": "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.", title: "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded." }, "?");
     const epicSection = h("section", { class: "epic", hidden: true }, [
-      h("h2", null, "Epic limit"),
-      h("p", { class: "hint" }, "Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded."),
+      h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
       limitForm,
       epicBody
     ]);
@@ -361,6 +361,7 @@
         : format(left, settings) + " left"));
       epicBody.appendChild(h("div", { class: "bar" + (left < 0 ? " is-over" : "") }, h("span", { style: "width:" + (Math.round(ratio * 1000) / 10) + "%" })));
       epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings) + " of " + format(model.limitMinutes, settings)));
+      if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint" }, "Estimated finish: " + model.estimatedFinish + " (based on logged workdays, excluding weekends and dates from board settings)."));
 
       if (!model.children.length) {
         epicBody.appendChild(h("p", { class: "empty-state" }, "No cards in checklists."));
@@ -373,7 +374,9 @@
             h("strong", null, format(child.minutes, settings))
           ]));
         });
-        epicBody.appendChild(childList);
+        epicBody.appendChild(h("details", { class: "child-details" }, [
+          h("summary", null, "Show child cards (" + model.children.length + ")"), childList
+        ]));
       }
       if (model.unlinkedCount) {
         epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items are not linked to cards and are ignored."));

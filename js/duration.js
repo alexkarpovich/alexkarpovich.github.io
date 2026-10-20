@@ -21,7 +21,11 @@
     return {
       hoursPerDay: clampInt(source.hoursPerDay, 1, 24, 8),
       daysPerWeek: clampInt(source.daysPerWeek, 1, 7, 5),
-      weekStartsOn: Number(source.weekStartsOn) === 0 ? 0 : 1
+      weekStartsOn: Number(source.weekStartsOn) === 0 ? 0 : 1,
+      excludedDates: Array.from(new Set((Array.isArray(source.excludedDates) ? source.excludedDates : []).filter(function (value) {
+        const date = String(value || "");
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) && !!parseYmd(date);
+      }))).sort()
     };
   }
 

@@ -288,11 +288,18 @@
         name: info ? info.name : "Unavailable card",
         url: info ? info.url : "",
         minutes: window.TimeModel.totalMinutes(decoded.entries),
+        entries: decoded.entries,
         missing: !info || board.unreadableIds.has(id)
       };
     });
 
     const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
+    const dated = children.reduce(function (all, child) { return all.concat(child.entries || []); }, []);
+    const today = window.TimeDuration.formatYmd(new Date());
+    const earliest = dated.length ? dated.map(function (entry) { return window.TimeDuration.ymdString(entry.ymd); }).sort()[0] : today;
+    const estimatedFinish = state.limitMinutes != null && dated.length
+      ? window.TimeEpic.estimateFinish(state.limitMinutes - spent, dated, earliest, today, state.settings)
+      : "";
     const debugEpic = debugEnabled() ? {
       build: buildLabel(),
       epicId: card.id,
@@ -317,6 +324,7 @@
       authorized: !!board.rest,
       remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
       children: children,
+      estimatedFinish: estimatedFinish,
       unlinkedCount: inspection.unlinkedCount || 0,
       hasChecklists: !!(inspection.checklists && inspection.checklists.length) || !!(card.checklists && card.checklists.length),
       debugEpic: debugEpic,

@@ -21,12 +21,42 @@
     h("option", { value: "1" }, "Monday"),
     h("option", { value: "0" }, "Sunday")
   ]);
+  const excludedDate = h("input", { type: "date", id: "excluded-date" });
+  const addExcludedDate = h("button", { type: "button", class: "button" }, "Add date");
+  const excludedDateList = h("div", { class: "excluded-date-list" });
+  let excludedDates = [];
+  function paintExcludedDates() {
+    window.TimeDom.clear(excludedDateList);
+    if (!excludedDates.length) {
+      excludedDateList.appendChild(h("span", { class: "muted" }, "No extra dates excluded. Weekends are always excluded."));
+      return;
+    }
+    excludedDates.forEach(function (date) {
+      const remove = h("button", { type: "button", class: "button-link", "aria-label": "Remove " + date, onclick: function () {
+        excludedDates = excludedDates.filter(function (item) { return item !== date; });
+        paintExcludedDates();
+      } }, "Remove");
+      excludedDateList.appendChild(h("div", { class: "excluded-date" }, [h("span", null, date), remove]));
+    });
+  }
+  addExcludedDate.addEventListener("click", function () {
+    if (!excludedDate.value || !window.TimeDuration.parseYmd(excludedDate.value)) return;
+    if (excludedDates.indexOf(excludedDate.value) === -1) excludedDates.push(excludedDate.value);
+    excludedDates.sort();
+    excludedDate.value = "";
+    paintExcludedDates();
+  });
   const error = h("div", { class: "error", role: "alert" });
   const button = h("button", { type: "submit", class: "button mod-primary" }, "Save");
   const form = h("form", { class: "settings" }, [
     h("label", null, ["Hours per work day", hours]),
     h("label", null, ["Days per work week", days]),
     h("label", null, ["Week starts on", week]),
+    h("div", { class: "settings-date-exclusions" }, [
+      h("span", { class: "label" }, "Dates to exclude from epic estimates"),
+      h("p", { class: "hint" }, "Weekends are excluded by default. Add holidays or other non-working dates here."),
+      h("div", { class: "control-row" }, [excludedDate, addExcludedDate]), excludedDateList
+    ]),
     h("p", { class: "hint" }, "1d and 1w in entries and reports use these values. Already saved minutes are not rewritten."),
     h("p", { class: "hint" }, window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey
       ? "API key is set: epic checklists can be read directly."
@@ -105,7 +135,8 @@
     const next = window.TimeDuration.normalizeSettings({
       hoursPerDay: hours.value,
       daysPerWeek: days.value,
-      weekStartsOn: week.value
+      weekStartsOn: week.value,
+      excludedDates: excludedDates
     });
     button.disabled = true;
     t.set("board", "shared", "settings", next).then(function () {
@@ -113,6 +144,8 @@
     }).catch(function (err) {
       saving = false;
       button.disabled = !canWrite;
+  excludedDate.disabled = !canWrite;
+  addExcludedDate.disabled = !canWrite;
       error.textContent = err.message || "Could not save settings.";
     });
   });
@@ -124,6 +157,8 @@
       hours.value = String(settings.hoursPerDay);
       days.value = String(settings.daysPerWeek);
       week.value = String(settings.weekStartsOn);
+      excludedDates = settings.excludedDates.slice();
+      paintExcludedDates();
       ready = true;
       return t.sizeTo("#app");
     }).catch(function (err) { error.textContent = err.message || "Could not load settings."; });
