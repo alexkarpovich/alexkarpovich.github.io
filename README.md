@@ -32,6 +32,8 @@ python3 -m http.server 8080 --bind 127.0.0.1
    | Card detail badges | `card-detail-badges` |
    | Card buttons | `card-buttons` |
    | Show settings | `show-settings` |
+   | On enable | `on-enable` |
+   | Authorization status | `authorization-status` |
 
 5. Открыть тестовую доску **в том же Workspace**, добавить Power-Up через меню Power-Ups (раздел Custom/пользовательских Power-Ups), затем перезагрузить доску. Приватный Power-Up доступен на досках выбранного Workspace; публичное ревью для этой проверки не нужно. [Руководство Trello](https://developer.atlassian.com/cloud/trello/guides/power-ups/building-a-power-up-part-one/).
 6. На карточке появятся кнопка **Time** и секция **Time tracking**; на доске — **Time report**. Самостоятельное открытие `card.html` не проверяет интеграцию: странице нужен контекст iframe Trello.
@@ -45,7 +47,7 @@ python3 -m http.server 8080 --bind 127.0.0.1
 1. Apps Admin → приложение → **Trello Auth** → Generate a new API Key.
 2. Проверить, что `appKey` в [js/config.js](js/config.js) принадлежит именно этому приложению. В репозитории уже есть публичный ключ; для другого приложения его нужно заменить или оставить пустым. Секреты и пользовательские токены туда не помещать.
 3. Настроить Allowed Origins для своего HTTPS origin, например `https://alexkarpovich.github.io`, без пути `/index.html` и без wildcard.
-4. В эпике/отчёте нажать **Allow read access / Allow**. Запрашивается только `read`; логирование через `t.set` не требует REST write-доступа. API-параметры передаются и в connector, и в дочерние iframe. [REST-клиент Trello](https://developer.atlassian.com/cloud/trello/power-ups/rest-api-client/).
+4. При первом включении Power-Up на доске появится popup **Allow read access** (один раз на аккаунт). То же можно сделать в настройках Power-Up или на эпик-карточке. Запрашивается только `read`; логирование через `t.set` не требует REST write-доступа. API-параметры передаются и в connector, и в дочерние iframe. [REST-клиент Trello](https://developer.atlassian.com/cloud/trello/power-ups/rest-api-client/).
 
 В настройках есть **Forget saved read access**: удаляет сохранённый SDK-токен. Полное аннулирование разрешения выполняется также в Trello account settings → Applications. При отказе в авторизации основные функции остаются доступными.
 

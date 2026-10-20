@@ -299,12 +299,28 @@
       if (!epicSection.hidden) paintEpic(model, settings);
     }
 
+    function wantsReadAccess(model) {
+      return !!(handlers.canAuthorize && !model.authorized && (model.needsChecklistAuth || model.limitMinutes != null));
+    }
+
+    function appendAuthorizeButton() {
+      epicBody.appendChild(h("button", {
+        type: "button",
+        class: "button mod-primary",
+        onclick: function () { handlers.onAuthorize().catch(showLimitError); }
+      }, "Allow read access"));
+    }
+
     function paintEpic(model, settings) {
       clear(epicBody);
       if (model.limitMinutes == null) {
         epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
           ? model.children.length + " child cards. Set a limit to see remaining time."
           : "Add trello.com/c/… links in the checklist, then set a limit."));
+        if (wantsReadAccess(model) || (model.needsChecklistAuth && !model.children.length)) {
+          epicBody.appendChild(h("p", { class: "hint" }, "Allow read access once to load checklist links from the REST API."));
+          appendAuthorizeButton();
+        }
         if (model.unlinkedCount) {
           epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items have no recognizable card link."));
         }
@@ -313,16 +329,14 @@
 
       if (!model.children.length) {
         epicBody.appendChild(h("p", { class: "empty-state" }, "No child cards found in the checklist."));
-        if (model.needsChecklistAuth) {
-          epicBody.appendChild(h("p", { class: "hint" }, "Trello did not return checklist items in the Power-Up. Allow read access to load pasted trello.com/c/… links."));
+        if (wantsReadAccess(model) || model.needsChecklistAuth) {
+          epicBody.appendChild(h("p", { class: "hint" }, "Trello often hides checklist item text in the Power-Up. Click Allow read access once to load pasted trello.com/c/… links."));
+          appendAuthorizeButton();
         } else {
           epicBody.appendChild(h("p", { class: "hint" }, "Paste each sub-task card link (trello.com/c/…) into a checklist item. Cards must be on this board in open lists."));
         }
         if (model.unlinkedCount) {
           epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " items have no trello.com/c/ link we could match."));
-        }
-        if (model.needsChecklistAuth && handlers.canAuthorize) {
-          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
         }
         return;
       }

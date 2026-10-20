@@ -40,29 +40,56 @@
 
   if (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) {
     const authStatus = h("p", { class: "hint", role: "status" });
+    const connect = h("button", {
+      type: "button",
+      class: "button mod-primary",
+      hidden: true,
+      onclick: async function () {
+        connect.disabled = true;
+        try {
+          await window.TimeRuntime.authorizeReadAccess(t);
+          await paintAuth();
+        } catch (err) {
+          authStatus.textContent = err.message || "Could not authorize.";
+        } finally { connect.disabled = false; }
+      }
+    }, "Allow read access (once)");
     const disconnect = h("button", {
       type: "button",
       class: "button-link",
+      hidden: true,
       onclick: async function () {
         disconnect.disabled = true;
         try {
           const api = await t.getRestApi();
           await api.clearToken();
-          authStatus.textContent = "Saved read-access token removed. You can authorize again from an epic or report.";
+          await paintAuth();
+          authStatus.textContent = "Saved read-access token removed.";
         } catch (err) {
           authStatus.textContent = err.message || "Could not disconnect.";
         } finally { disconnect.disabled = false; }
       }
     }, "Forget saved read access");
+    async function paintAuth() {
+      const ok = await window.TimeRuntime.isReadAuthorized(t);
+      connect.hidden = ok;
+      disconnect.hidden = !ok;
+      authStatus.textContent = ok
+        ? "Read access is connected for this account (checklists and child cards via REST)."
+        : "Epic remaining time needs one-time read access to load checklist items Trello hides from Power-Ups.";
+    }
     app.appendChild(h("section", { class: "settings" }, [
+      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Epic checklists"),
+      connect,
       disconnect,
       authStatus,
       h("p", { class: "hint" }, [
-        "To revoke the authorization at Trello as well, open ",
-        h("a", { href: "https://trello.com/my/account", target: "_blank", rel: "noopener noreferrer" }, "your Trello account settings"),
-        " and remove it under Applications."
+        "To revoke at Trello, open ",
+        h("a", { href: "https://trello.com/my/account", target: "_blank", rel: "noopener noreferrer" }, "account settings"),
+        " → Applications."
       ])
     ]));
+    paintAuth().catch(function () {});
   }
 
   form.addEventListener("submit", function (event) {

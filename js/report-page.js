@@ -83,8 +83,7 @@
         const button = this;
         button.disabled = true;
         try {
-          const api = await t.getRestApi();
-          await api.authorize({ scope: "read", expiration: "never" });
+          await window.TimeRuntime.authorizeReadAccess(t);
           await refresh();
         } catch (error) {
           notice = error.message || "Could not authorize. Please try again.";

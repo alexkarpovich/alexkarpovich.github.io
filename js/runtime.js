@@ -124,6 +124,21 @@
     }
   }
 
+  async function authorizeReadAccess(client) {
+    const api = await client.getRestApi();
+    await api.authorize({ scope: "read", expiration: "never" });
+    if (!(await api.isAuthorized())) throw new Error("Authorization was not completed.");
+  }
+
+  async function isReadAuthorized(client) {
+    try {
+      const api = await client.getRestApi();
+      return await api.isAuthorized();
+    } catch (error) {
+      return false;
+    }
+  }
+
   async function readSharedTime(client, cardId, rest, modelApi) {
     try {
       let packed = normalizePacked(modelApi, await client.get(cardId, "shared", "time", null));
@@ -192,7 +207,8 @@
     let checklistAuthNeeded = false;
     let remoteChecklistsFetched = false;
     const hasKids = local.childIds && local.childIds.length;
-    const wantRemote = allowRemote && appKey && (!hasKids || epicApi.needsRemoteChecklists(local, checklists));
+    const incomplete = !local.complete;
+    const wantRemote = allowRemote && appKey && (incomplete || !hasKids || epicApi.needsRemoteChecklists(local, checklists));
     if (wantRemote) {
       try {
         const rest = await restCredentials(client, appKey);
@@ -243,6 +259,9 @@
     clientOptions: clientOptions,
     readSharedTime: readSharedTime,
     loadBoardTimes: loadBoardTimes,
-    resolveChecklistInspection: resolveChecklistInspection
+    resolveChecklistInspection: resolveChecklistInspection,
+    authorizeReadAccess: authorizeReadAccess,
+    isReadAuthorized: isReadAuthorized,
+    restCredentials: restCredentials
   };
 });

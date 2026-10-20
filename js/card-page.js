@@ -7,8 +7,12 @@
   let currentMember = null;
   const refresh = window.TimeRuntime.coalesce(reload);
 
-  if (window.parent === window || !window.TrelloPowerUp) {
-    app.textContent = "Open this page from a Trello card.";
+  if (window.parent === window) {
+    app.textContent = "Open this from a Trello board, not this URL in a new tab. On a card, use the Time button or the Time tracking section on the card back, then Allow read access there.";
+    return;
+  }
+  if (!window.TrelloPowerUp) {
+    app.textContent = "Trello Power-Up SDK did not load. Reload the board, disable ad blockers for trello.com and p.trellocdn.com, then reopen the card.";
     return;
   }
   t = window.TimeRuntime.createIframe(window.TIMETRACK_CONFIG, window.TrelloPowerUp);
@@ -210,9 +214,14 @@
   }
 
   async function onAuthorize() {
-    const api = await t.getRestApi();
-    await api.authorize({ scope: "read", expiration: "never" });
+    if (!appKey()) throw new Error("No API key in config.js for read access.");
+    await window.TimeRuntime.authorizeReadAccess(t);
     await refresh();
+    if (current && current.authorized && current.children.length) {
+      t.alert({ message: "Read access granted. Child cards loaded from the checklist.", duration: 4, display: "success" });
+    } else if (current && current.authorized) {
+      t.alert({ message: "Read access granted. Reopen the card if checklist links still do not appear.", duration: 5, display: "info" });
+    }
   }
 
   async function loadModel(client) {
@@ -241,7 +250,7 @@
       t,
       card.id,
       card,
-      state.limitMinutes != null || !!(card.checklists && card.checklists.length),
+      !!appKey(),
       appKey(),
       window.TimeEpic,
       { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
@@ -261,12 +270,7 @@
       shortLinks,
       nameIndex
     );
-    const needsChecklistAuth = !!resolved.checklistAuthNeeded || (
-      !!appKey() &&
-      state.limitMinutes != null &&
-      !board.rest &&
-      (checklistsForEpic.length > 0 || !!(card.checklists && card.checklists.length))
-    );
+    const needsChecklistAuth = !!resolved.checklistAuthNeeded || (!!appKey() && !board.rest);
     const inspection = {
       complete: parsed.complete,
       childIds: parsed.childIds,
@@ -323,6 +327,7 @@
       limitMinutes: state.limitMinutes,
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
       needsChecklistAuth: !!inspection.checklistAuthNeeded,
+      authorized: !!board.rest,
       remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,

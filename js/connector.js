@@ -81,7 +81,26 @@
     });
   }
 
+  function needsReadAccess() {
+    return !!appKey();
+  }
+
   const capabilities = {
+    "on-enable": function (t) {
+      if (!needsReadAccess()) return;
+      return window.TimeRuntime.isReadAuthorized(t).then(function (authorized) {
+        if (authorized) return;
+        return t.popup({
+          title: "Time tracking — one-time read access",
+          url: t.signUrl("./authorize.html"),
+          height: 320
+        });
+      });
+    },
+    "authorization-status": function (t) {
+      if (!needsReadAccess()) return Promise.resolve(true);
+      return window.TimeRuntime.isReadAuthorized(t);
+    },
     "card-buttons": function () {
       return [{ icon: icon, text: "Time", callback: openCard }];
     },
