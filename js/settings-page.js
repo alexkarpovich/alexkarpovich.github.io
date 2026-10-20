@@ -4,7 +4,11 @@
     app.textContent = "Open settings from the Power-Up menu on the board.";
     return;
   }
-  const t = window.TrelloPowerUp.iframe(window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
+  const t = window.TimeRuntime.createIframe(window.TIMETRACK_CONFIG, window.TrelloPowerUp);
+  if (!t) {
+    app.textContent = "Could not connect to Trello. Reload the board.";
+    return;
+  }
   window.TimeTheme.bind(t);
   const h = window.TimeDom.h;
   let ready = false;

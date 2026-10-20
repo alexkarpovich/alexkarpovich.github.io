@@ -96,6 +96,18 @@
     } : {};
   }
 
+  function createIframe(config, trelloPowerUp) {
+    const opts = clientOptions(config);
+    const trello = trelloPowerUp || (typeof globalThis !== "undefined" ? globalThis.TrelloPowerUp : null);
+    if (!trello || typeof trello.iframe !== "function") return null;
+    try {
+      return Object.keys(opts).length ? trello.iframe(opts) : trello.iframe();
+    } catch (error) {
+      try { return trello.iframe(); }
+      catch (fallbackError) { return null; }
+    }
+  }
+
   function normalizePacked(modelApi, raw) {
     if (modelApi && modelApi.normalizePackedRaw) return modelApi.normalizePackedRaw(raw);
     return raw && typeof raw === "object" ? raw : null;
@@ -200,6 +212,7 @@
   }
 
   return {
+    createIframe: createIframe,
     expandShortLinkMap: expandShortLinkMap,
     mapPool: mapPool,
     createReader: createReader,

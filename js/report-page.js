@@ -14,7 +14,11 @@
     app.textContent = "Open this report from the Time report board button in Trello.";
     return;
   }
-  t = window.TrelloPowerUp.iframe(window.TimeRuntime.clientOptions(window.TIMETRACK_CONFIG));
+  t = window.TimeRuntime.createIframe(window.TIMETRACK_CONFIG, window.TrelloPowerUp);
+  if (!t) {
+    app.textContent = "Could not connect to Trello. Reload the board.";
+    return;
+  }
   window.TimeTheme.bind(t);
 
   t.render(function () {
