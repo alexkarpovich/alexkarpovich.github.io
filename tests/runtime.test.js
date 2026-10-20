@@ -107,7 +107,10 @@ test("board times distinguish an empty log from unreadable data", async t => {
   }));
   const result = await runtime.loadBoardTimes({
     cards: async () => [{ id: "empty" }, { id: "broken" }],
-    get: async () => null,
+    get: async id => {
+      if (id === "broken") throw new Error("SDK read failed");
+      return null;
+    },
     getRestApi: () => ({ isAuthorized: () => true, getToken: () => "token" })
   }, "key", model);
   assert.equal(result.timeById.get("empty"), null);
@@ -135,4 +138,68 @@ test("remote checklist names resolve child links and deduplicate them", async t 
   assert.equal(result.remoteChecklistsFetched, true);
   assert.deepEqual(result.childIds, ["child"]);
   assert.equal(requests[0].searchParams.get("checkItem_fields"), "name,state");
+});
+
+test("500 empty logs require 500 SDK reads, no REST or authorization calls", async t => {
+  let reads = 0;
+  let auth = 0;
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => { requests++; throw new Error("Unexpected REST"); });
+  const cards = Array.from({ length: 500 }, (_, i) => ({ id: String(i) }));
+  const loaded = await runtime.loadBoardTimes({
+    cards: async () => { throw new Error("Already have card metadata"); },
+    get: async () => { reads++; return null; },
+    getRestApi: () => { auth++; throw new Error("Unnecessary authorization lookup"); }
+  }, "key", model, cards);
+  assert.equal(reads, 500);
+  assert.equal(auth, 0);
+  assert.equal(requests, 0);
+  assert.equal(loaded.unreadableIds.size, 0);
+  assert.equal(loaded.timeById.size, 500);
+});
+
+test("malformed logs remain unknown if no fallback can read them", async () => {
+  const client = { get: async (id, visibility, key) => key ? "invalid JSON" : { time: "invalid JSON" } };
+  assert.equal(await runtime.readSharedTime(client, "broken", null, model), undefined);
+});
+
+test("epics read only their visible children, deduplicate links, and refresh changed logs", async () => {
+  const cards = Array.from({ length: 500 }, (_, i) => ({ id: "card" + i, shortLink: "link" + i, name: "Card " + i }));
+  const reads = [];
+  let minutes = 30;
+  const client = {
+    cards: async () => cards,
+    get: async id => {
+      reads.push(id);
+      return { who: [["me", "Me"]], e: [["entry", 20261020, minutes, 0]] };
+    }
+  };
+  const card = { id: "epic", checklists: [{ checkItems: [
+    { name: "https://trello.com/c/link3" },
+    { name: "https://trello.com/c/link3" },
+    { name: "https://trello.com/c/link7" },
+    { name: "https://trello.com/c/missing" }
+  ] }] };
+  let loaded = await runtime.loadCardChildren(client, card, "", model, epic);
+  assert.deepEqual(reads, ["card3", "card7"]);
+  assert.equal(loaded.inspection.complete, false);
+  assert.equal(model.totalMinutes(model.decode(loaded.board.timeById.get("card3")).entries), 30);
+  minutes = 60;
+  loaded = await runtime.loadCardChildren(client, card, "", model, epic);
+  assert.equal(model.totalMinutes(model.decode(loaded.board.timeById.get("card3")).entries), 60);
+  assert.equal(reads.length, 4);
+});
+
+test("empty REST checklists do not trigger another request per checklist", async t => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    requests++;
+    return { ok: true, json: async () => [{ id: "list", checkItems: [] }] };
+  });
+  const result = await runtime.resolveChecklistInspection({
+    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "token" })
+  }, "epic", { checklists: [{ id: "list" }] }, true, "key", epic, { boardCards: [] });
+  assert.equal(requests, 1);
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.childIds, []);
 });

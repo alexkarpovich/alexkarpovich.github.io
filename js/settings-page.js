@@ -94,6 +94,7 @@
     paintAuth().catch(function () {});
   }
 
+  app.textContent = "";
   if (authSection) app.appendChild(authSection);
   app.appendChild(form);
 

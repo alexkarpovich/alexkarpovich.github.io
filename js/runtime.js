@@ -182,19 +182,22 @@
   }
 
   async function readSharedTime(client, cardId, rest, modelApi) {
-    let readable = false;
     try {
-      const packed = normalizePacked(modelApi, await client.get(cardId, "shared", "time", null));
-      readable = true;
+      const raw = await client.get(cardId, "shared", "time", null);
+      // A successful missing-key read is authoritative. Empty cards must not
+      // trigger a second SDK call and a network request for every render.
+      if (raw == null) return null;
+      const packed = normalizePacked(modelApi, raw);
       if (packed) return packed;
     } catch (error) { /* Try the full shared scope and then REST. */ }
     try {
       const shared = await client.get(cardId, "shared");
+      if (shared && typeof shared === "object" && shared.time == null) return null;
       const packed = normalizePacked(modelApi, shared && shared.time);
-      readable = true;
       if (packed) return packed;
     } catch (error) { /* A failed SDK read must not skip the REST fallback. */ }
-    if (!rest || !rest.appKey || !rest.token) return readable ? null : undefined;
+    if (typeof rest === "function") rest = await rest();
+    if (!rest || !rest.appKey || !rest.token) return undefined;
     try {
       const rows = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/pluginData?key=" + encodeURIComponent(rest.appKey) + "&token=" + encodeURIComponent(rest.token));
       if (!Array.isArray(rows)) return undefined;
@@ -225,11 +228,21 @@
     return map;
   }
 
-  async function loadBoardTimes(client, appKey, modelApi) {
-    const boardCards = await client.cards("id", "name", "url", "shortLink");
-    const rest = await restCredentials(client, appKey);
+  function lazyCredentials(client, appKey) {
+    let pending;
+    return function () {
+      if (!pending) pending = restCredentials(client, appKey);
+      return pending;
+    };
+  }
+
+  async function loadBoardTimes(client, appKey, modelApi, cards, options) {
+    const boardCards = cards || await client.cards("id", "name", "url", "shortLink");
+    const opts = options || {};
+    const getRest = opts.getRest || lazyCredentials(client, appKey);
     const packedList = await mapPool(boardCards, 8, function (card) {
-      return readSharedTime(client, card.id, rest, modelApi);
+      const work = function () { return readSharedTime(client, card.id, getRest, modelApi); };
+      return opts.read ? opts.read(card.id, work) : work();
     });
     const timeById = new Map(boardCards.map(function (card, index) {
       return [card.id, packedList[index]];
@@ -237,11 +250,37 @@
     const unreadableIds = new Set(boardCards.filter(function (card, index) {
       return packedList[index] === undefined;
     }).map(function (card) { return card.id; }));
-    return { boardCards: boardCards, timeById: timeById, unreadableIds: unreadableIds, rest: rest };
+    return { boardCards: boardCards, timeById: timeById, unreadableIds: unreadableIds };
+  }
+
+  // Read metadata once, then read logs only for visible checklist children.
+  // No board scan, token lookup, or REST request for a card without checklists.
+  async function loadCardChildren(client, card, appKey, modelApi, epicApi, options) {
+    const opts = options || {};
+    const getRest = lazyCredentials(client, appKey);
+    const empty = Array.isArray(card.checklists) && card.checklists.length === 0;
+    const boardCards = empty ? [] : await (opts.cards
+      ? opts.cards()
+      : client.cards("id", "name", "url", "shortLink"));
+    const shortLinks = new Map(boardCards.map(function (item) { return [item.shortLink, item.id]; }));
+    const nameIndex = epicApi.uniqueNameIndex(boardCards);
+    const inspection = empty
+      ? { complete: true, childIds: [], checklists: [], unlinkedCount: 0 }
+      : await resolveChecklistInspection(client, card.id, card, true, appKey, epicApi, {
+        boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
+      });
+    const childIds = new Set(inspection.childIds || []);
+    const board = await loadBoardTimes(client, appKey, modelApi,
+      boardCards.filter(function (item) { return childIds.has(item.id); }),
+      { getRest: getRest, read: opts.read });
+    // Only epic/checklist UI needs authorization state; ordinary cards skip it.
+    board.rest = empty || opts.authStatus === false ? null : await getRest();
+    board.boardCards = boardCards;
+    return { board: board, inspection: inspection, shortLinks: shortLinks, nameIndex: nameIndex };
   }
 
   async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi, boardContext) {
-    let checklists = (card && card.checklists) || [];
+    let checklists = card && card.checklists;
     let shortLinks = boardContext && boardContext.shortLinks;
     let nameIndex = boardContext && boardContext.nameIndex;
     if (!shortLinks || !nameIndex) {
@@ -259,12 +298,13 @@
     let local = inspect();
     let checklistAuthNeeded = false;
     let remoteChecklistsFetched = false;
-    const hasKids = local.childIds && local.childIds.length;
     const incomplete = !local.complete;
-    const wantRemote = allowRemote && appKey && (incomplete || !hasKids || epicApi.needsRemoteChecklists(local, checklists));
+    const wantRemote = allowRemote && appKey && (incomplete || epicApi.needsRemoteChecklists(local, checklists));
     if (wantRemote) {
       try {
-        const rest = await restCredentials(client, appKey);
+        const rest = boardContext && boardContext.getRest
+          ? await boardContext.getRest()
+          : await restCredentials(client, appKey);
         if (!rest) checklistAuthNeeded = true;
         else {
           checklists = await fetchJson("https://api.trello.com/1/cards/" + encodeURIComponent(cardId) + "/checklists?checkItems=all&checkItem_fields=name,state&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
@@ -273,9 +313,6 @@
           local = inspect();
         }
       } catch (error) { /* Keep the unknown state; never assume missing time is zero. */ }
-    }
-    if (local.unresolvedCount) {
-      local = inspect();
     }
     return {
       complete: local.complete,
@@ -292,7 +329,7 @@
     const lists = Array.isArray(checklists) ? checklists : [];
     return mapPool(lists, 4, async function (list) {
       if (!list || !list.id) return list;
-      if (Array.isArray(list.checkItems) && list.checkItems.length) return list;
+      if (Array.isArray(list.checkItems)) return list;
       try {
         const items = await fetchJson("https://api.trello.com/1/checklists/" + encodeURIComponent(list.id) + "/checkItems?fields=name,state&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
         return Object.assign({}, list, { checkItems: Array.isArray(items) ? items : [] });
@@ -312,6 +349,7 @@
     clientOptions: clientOptions,
     readSharedTime: readSharedTime,
     loadBoardTimes: loadBoardTimes,
+    loadCardChildren: loadCardChildren,
     resolveChecklistInspection: resolveChecklistInspection,
     authorizeReadAccess: authorizeReadAccess,
     isReadAuthorized: isReadAuthorized,

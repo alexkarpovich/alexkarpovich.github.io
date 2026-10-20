@@ -102,24 +102,21 @@
     const listNames = new Map((lists || []).map(function (list) { return [list.id, list.name]; }));
     const shortLinks = new Map((cardList || []).map(function (card) { return [card.shortLink, card.id]; }));
     const nameIndex = window.TimeEpic.uniqueNameIndex(cardList);
-    const boardTimes = await window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel);
+    const boardTimes = await window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel, cardList);
     const states = cardList.map(function (card) {
       return window.TimeModel.decode(boardTimes.timeById.get(card.id));
     });
     const needsLists = cardList.some(function (card, index) {
       if (states[index].limitMinutes == null) return false;
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
-      if (!(fromClient.childIds && fromClient.childIds.length)) return true;
       return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
     const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
       const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
-      const needsRemote = state.limitMinutes != null && (
-        !(fromClient.childIds && fromClient.childIds.length) ||
-        window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists)
-      );
+      const needsRemote = state.limitMinutes != null &&
+        window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
       let kids = fromClient.complete && !needsRemote ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
         const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks, nameIndex);

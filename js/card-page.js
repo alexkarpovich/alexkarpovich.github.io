@@ -236,55 +236,47 @@
     const settings = window.TimeDuration.normalizeSettings(rawSettings);
     currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
     const state = window.TimeModel.decode(raw);
-    const board = await window.TimeRuntime.loadBoardTimes(client, appKey(), window.TimeModel);
-    let shortLinks = new Map(board.boardCards.map(function (item) { return [item.shortLink, item.id]; }));
-    const boardInfo = await client.board("id").catch(function () { return null; });
-    shortLinks = await window.TimeRuntime.expandShortLinkMap(
-      client,
-      card.checklists,
-      shortLinks,
-      board.rest,
-      boardInfo && boardInfo.id,
-      window.TimeEpic
-    );
-    const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
-    const resolved = await window.TimeRuntime.resolveChecklistInspection(
-      t,
-      card.id,
-      card,
-      !!appKey(),
-      appKey(),
-      window.TimeEpic,
-      { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
-    );
-    const checklistsForEpic = resolved.checklists || card.checklists;
-    shortLinks = await window.TimeRuntime.expandShortLinkMap(
-      client,
-      checklistsForEpic,
-      shortLinks,
-      board.rest,
-      boardInfo && boardInfo.id,
-      window.TimeEpic
-    );
-    const parsed = window.TimeEpic.inspectChecklists(
-      checklistsForEpic,
-      card.id,
-      shortLinks,
-      nameIndex
-    );
-    const needsChecklistAuth = !!resolved.checklistAuthNeeded || (!!appKey() && !board.rest);
-    const inspection = {
-      complete: parsed.complete,
-      childIds: parsed.childIds,
-      unlinkedCount: parsed.unlinkedCount,
-      unresolvedCount: parsed.unresolvedCount,
-      checklists: checklistsForEpic,
-      checklistAuthNeeded: needsChecklistAuth,
-      remoteChecklistsFetched: !!resolved.remoteChecklistsFetched
+    const write = canWriteCard();
+    const base = {
+      cardId: card.id,
+      settings: settings,
+      currentMemberId: currentMember ? currentMember.id : "",
+      canWrite: write,
+      canAdd: write && !!currentMember,
+      entries: state.entries,
+      limitMinutes: state.limitMinutes,
+      kidsKnown: false,
+      needsChecklistAuth: false,
+      authorized: false,
+      children: [],
+      unlinkedCount: 0,
+      hasChecklists: !!(card.checklists && card.checklists.length),
+      buildLabel: buildLabel(),
+      warning: "",
+      error: "",
+      limitError: "",
+      saving: saving,
+      storageRatio: window.TimeModel.storageRatio(state)
     };
+    if (Array.isArray(card.checklists) && card.checklists.length === 0) return base;
+
+    // The time form and its entries are usable while optional epic data loads.
+    current = Object.assign({}, base, { childrenLoading: true });
+    view.update(current);
+    let related;
+    try {
+      related = await window.TimeRuntime.loadCardChildren(
+        client, card, appKey(), window.TimeModel, window.TimeEpic
+      );
+    } catch (error) {
+      return Object.assign(base, {
+        saving: saving,
+        warning: "Time log loaded, but child cards could not be refreshed. Reopen the card to retry."
+      });
+    }
+    const { board, inspection, shortLinks, nameIndex } = related;
     // Rendering never writes pluginData: opening a card cannot overwrite a log.
 
-    const write = canWriteCard();
     const kids = (inspection.childIds || []).slice();
     const byId = new Map(board.boardCards.map(function (item) { return [item.id, item]; }));
     const children = kids.map(function (id) {
@@ -319,14 +311,7 @@
       })
     } : null;
 
-    return {
-      cardId: card.id,
-      settings: settings,
-      currentMemberId: currentMember ? currentMember.id : "",
-      canWrite: write,
-      canAdd: write && !!currentMember,
-      entries: state.entries,
-      limitMinutes: state.limitMinutes,
+    return Object.assign(base, {
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
       needsChecklistAuth: !!inspection.checklistAuthNeeded,
       authorized: !!board.rest,
@@ -334,14 +319,9 @@
       children: children,
       unlinkedCount: inspection.unlinkedCount || 0,
       hasChecklists: !!(inspection.checklists && inspection.checklists.length) || !!(card.checklists && card.checklists.length),
-      buildLabel: buildLabel(),
       debugEpic: debugEpic,
-      warning: "",
-      error: "",
-      limitError: "",
-      saving: saving,
-      storageRatio: window.TimeModel.storageRatio(state)
-    };
+      saving: saving
+    });
   }
 
 })();

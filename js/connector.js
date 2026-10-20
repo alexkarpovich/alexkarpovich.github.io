@@ -2,6 +2,9 @@
   if (window.parent === window || !window.TrelloPowerUp) return;
 
   const read = window.TimeRuntime.createReader(8);
+  // Aggregates use a separate pending-only pool so they never occupy slots
+  // needed by their own child reads.
+  const summarize = window.TimeRuntime.createReader(Infinity);
   const icon = new URL("img/icon.svg", window.location.href).href;
 
   function appKey() {
@@ -25,7 +28,12 @@
     });
   }
 
-  async function summaryFor(t) {
+  function summaryFor(t) {
+    const ctx = t.getContext();
+    return summarize(ctx.board + ":" + ctx.card, function () { return loadSummary(t); });
+  }
+
+  async function loadSummary(t) {
     const ctx = t.getContext();
     const [rawSettings, raw] = await Promise.all([
       read(ctx.board + ":settings", function () { return t.get("board", "shared", "settings", null); }),
@@ -42,20 +50,16 @@
     };
     if (state.limitMinutes == null) return summary;
     const full = await t.card("id", "checklists");
-    const board = await read(ctx.board + ":board-times", function () {
-      return window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel);
+    const related = await window.TimeRuntime.loadCardChildren(t, full, appKey(), window.TimeModel, window.TimeEpic, {
+      authStatus: false,
+      cards: function () {
+        return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink"); });
+      },
+      // Child reads include validation and fallbacks; do not share their result
+      // with the raw read used by that child's own badge callback.
+      read: function (id, work) { return read(ctx.board + ":child-time:" + id, work); }
     });
-    const shortLinks = new Map(board.boardCards.map(function (card) { return [card.shortLink, card.id]; }));
-    const nameIndex = window.TimeEpic.uniqueNameIndex(board.boardCards);
-    const inspection = await window.TimeRuntime.resolveChecklistInspection(
-      t,
-      full.id,
-      full,
-      true,
-      appKey(),
-      window.TimeEpic,
-      { boardCards: board.boardCards, shortLinks: shortLinks, nameIndex: nameIndex }
-    );
+    const { board, inspection } = related;
     if (!inspection.complete) return summary;
     const kids = inspection.childIds || [];
     if (!kids.length) return summary;

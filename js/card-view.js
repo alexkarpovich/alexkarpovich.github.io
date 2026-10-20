@@ -300,7 +300,7 @@
     }
 
     function wantsReadAccess(model) {
-      return !!(handlers.canAuthorize && !model.authorized && (model.needsChecklistAuth || model.limitMinutes != null));
+      return !!(handlers.canAuthorize && !model.authorized && model.needsChecklistAuth);
     }
 
     function appendAuthorizeButton() {
@@ -313,6 +313,10 @@
 
     function paintEpic(model, settings) {
       clear(epicBody);
+      if (model.childrenLoading) {
+        epicBody.appendChild(h("p", { class: "hint", role: "status" }, "Loading child cards…"));
+        return;
+      }
       if (model.limitMinutes == null) {
         epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
           ? model.children.length + " child cards. Set a limit to see remaining time."

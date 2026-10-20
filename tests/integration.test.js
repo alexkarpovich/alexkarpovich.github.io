@@ -79,6 +79,46 @@ function cardHarness(overrides = {}) {
 
 const fields = { ymd: 20261020, minutes: 30, note: "Review" };
 
+test("ordinary cards load without scanning the board or looking up REST access", async () => {
+  let reads = 0;
+  let extraCalls = 0;
+  const unexpected = () => { extraCalls++; throw new Error("Unexpected board or REST lookup"); };
+  const h = cardHarness({
+    cards: unexpected,
+    board: unexpected,
+    getRestApi: unexpected,
+    get: async () => { reads++; return null; }
+  });
+  await h.render();
+  assert.equal(reads, 2, "only settings and the current card log");
+  assert.equal(extraCalls, 0);
+  assert.equal(h.latest().canAdd, true);
+  assert.equal(h.latest().needsChecklistAuth, false);
+  assert.equal(h.latest().children.length, 0);
+});
+
+test("the time log is usable while epic metadata is pending; failure keeps the log", async () => {
+  let rejectCards;
+  const pendingCards = new Promise((resolve, reject) => { rejectCards = reject; });
+  const h = cardHarness({
+    card: async () => ({ id: "epic", checklists: [{ id: "list" }] }),
+    cards: () => pendingCards
+  });
+  h.shared({ time: { lim: 120, e: [["entry", 20261020, 30, 0]], who: [["me", "Me"]] } });
+  const loading = h.render();
+  await tick();
+  assert.equal(h.latest().entries[0].minutes, 30);
+  assert.equal(h.latest().childrenLoading, true);
+  assert.equal(h.latest().canAdd, true);
+  assert.equal(h.latest().kidsKnown, false);
+  rejectCards(new Error("Board unavailable"));
+  await loading;
+  assert.equal(h.latest().entries[0].minutes, 30);
+  assert.equal(h.latest().canAdd, true);
+  assert.equal(h.latest().childrenLoading, undefined);
+  assert.match(h.latest().warning, /child cards could not be refreshed/);
+});
+
 test("card rendering is read-only, initializes REST options and unlocks after save", async () => {
   const h = cardHarness();
   await h.render();
@@ -371,4 +411,76 @@ test("epic badges use remote links and suppress remaining when child logs are un
   assert.equal((await capabilities["card-badges"](client))[0].text, "2h 30m left");
   failed = true;
   assert.equal((await capabilities["card-badges"](client))[0].text, "limit 4h");
+});
+
+test("simultaneous epic badge and detail callbacks share checklist and child reads", async () => {
+  let capabilities;
+  let reads = 0;
+  let cardCalls = 0;
+  let boardCalls = 0;
+  let authCalls = 0;
+  runPage("connector.js", {
+    parent: {}, location: { href: "https://example.com/index.html" },
+    TIMETRACK_CONFIG: { appKey: "key" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeBadges: require("../js/badges"),
+    TrelloPowerUp: { initialize: value => { capabilities = value; } }
+  });
+  const client = {
+    getRestApi: () => { authCalls++; throw new Error("Local badge data must not require authorization"); },
+    getContext: () => ({ board: "board", card: "epic" }),
+    card: async () => {
+      cardCalls++;
+      return { id: "epic", checklists: [{ checkItems: [{ name: "https://trello.com/c/task" }] }] };
+    },
+    cards: async () => {
+      boardCalls++;
+      return Array.from({ length: 500 }, (_, i) => ({ id: "child" + i, shortLink: i === 0 ? "task" : "other" + i }));
+    },
+    get: async scope => {
+      reads++;
+      await tick();
+      if (scope === "board") return null;
+      if (scope === "card") return { lim: 120, e: [] };
+      assert.equal(scope, "child0");
+      return { e: [["log", 20261020, 30, 0]] };
+    }
+  };
+  const [badge, detail] = await Promise.all([
+    capabilities["card-badges"](client), capabilities["card-detail-badges"](client)
+  ]);
+  assert.equal(badge[0].text, "1h 30m left");
+  assert.equal(detail[0].text, badge[0].text);
+  assert.equal(reads, 3);
+  assert.equal(cardCalls, 1);
+  assert.equal(boardCalls, 1);
+  assert.equal(authCalls, 0);
+});
+
+test("an epic cannot reuse an unvalidated raw result from its child's badge", async () => {
+  let capabilities;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  runPage("connector.js", {
+    parent: {}, location: { href: "https://example.com/index.html" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeBadges: require("../js/badges"),
+    TrelloPowerUp: { initialize: value => { capabilities = value; } }
+  });
+  const child = {
+    getContext: () => ({ board: "board", card: "child" }),
+    get: async scope => scope === "board" ? null : pending
+  };
+  const parent = {
+    getContext: () => ({ board: "board", card: "epic" }),
+    get: async scope => scope === "board" ? null : scope === "card" ? { e: [], lim: 120 } : "invalid JSON",
+    card: async () => ({ id: "epic", checklists: [{ checkItems: [{ name: "https://trello.com/c/task" }] }] }),
+    cards: async () => [{ id: "child", shortLink: "task" }]
+  };
+  const childBadge = capabilities["card-badges"](child);
+  const epicBadge = capabilities["card-badges"](parent);
+  await tick();
+  release("invalid JSON");
+  await childBadge;
+  assert.equal((await epicBadge)[0].text, "limit 2h");
 });
