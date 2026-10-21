@@ -379,6 +379,7 @@ button:disabled,
 .empty-state { color: var(--muted); margin: 6px 0; font-size: 13px; }
 
 .log-form .error { width: 100%; flex-basis: 100%; }
+.log-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 
 .edit-panel {
   margin: 8px 0;

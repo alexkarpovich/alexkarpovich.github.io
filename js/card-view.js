@@ -88,6 +88,9 @@
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
       formError
     ]);
+    const logSummary = h("summary", { hidden: true }, "Log time on this card");
+    const logDetails = h("details", { class: "log-details", open: true }, [logSummary, form, addHint]);
+    let epicMode = false;
 
     const limitForm = h("form", { class: "limit-form" }, [
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
@@ -102,8 +105,7 @@
     ]);
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
-      form,
-      addHint,
+      logDetails,
       editHost,
       total,
       list,
@@ -129,8 +131,9 @@
       }).then(function () {
         duration.value = "";
         note.value = "";
-        duration.focus();
+        if (logDetails.open && !form.hidden) duration.focus();
       }).catch(function (error) {
+        logDetails.open = true;
         formError.textContent = error.message || "Could not save entry.";
       });
     });
@@ -259,7 +262,8 @@
     function update(model) {
       latestModel = model;
       const settings = model.settings;
-      if (model.cardId !== cardId) {
+      const cardChanged = model.cardId !== cardId;
+      if (cardChanged) {
         editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
@@ -268,6 +272,10 @@
         limitError.textContent = "";
         closeEdit();
       }
+      const showEpic = !!(model.children.length || model.limitMinutes != null || model.hasChecklists);
+      if (cardChanged || showEpic !== epicMode) logDetails.open = !showEpic;
+      epicMode = showEpic;
+      logSummary.hidden = !showEpic;
 
       const canWrite = model.canWrite !== false;
       const canAdd = model.canAdd !== false;
@@ -284,7 +292,10 @@
       clearLimit.disabled = !!model.saving || !canWrite;
       paintLimit(model);
 
-      if (model.error) formError.textContent = model.error;
+      if (model.error) {
+        formError.textContent = model.error;
+        logDetails.open = true;
+      }
       if (model.limitError) limitError.textContent = model.limitError;
 
       clear(total);
@@ -342,7 +353,7 @@
       if (!editingLimit && !limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
-      epicSection.hidden = !(model.children.length || model.limitMinutes != null || model.hasChecklists);
+      epicSection.hidden = !showEpic;
       if (!epicSection.hidden) paintEpic(model, settings);
     }
 
