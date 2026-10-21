@@ -143,7 +143,10 @@
     },
     "board-buttons": function () {
       return [{
-        icon: icon,
+        icon: {
+          dark: new URL("img/report-on-dark.svg", window.location.href).href,
+          light: new URL("img/report-on-light.svg", window.location.href).href
+        },
         text: "Time report",
         condition: "always",
         callback: openReport

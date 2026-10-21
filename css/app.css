@@ -55,6 +55,10 @@ body {
 
 body.page { background: var(--bg); }
 body.frame { background: var(--card); }
+.report-content { padding: 24px; }
+@media (max-width: 720px) {
+  .report-content { padding: 16px; }
+}
 
 button, input, select { font: inherit; color: inherit; }
 
