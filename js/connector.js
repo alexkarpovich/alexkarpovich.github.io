@@ -37,10 +37,10 @@
     const ctx = t.getContext();
     const [rawSettings, raw] = await Promise.all([
       read(ctx.board + ":settings", function () { return t.get("board", "shared", "settings", null); }),
-      read(ctx.board + ":" + ctx.card, function () { return t.get("card", "shared", "time", null); })
+      read(ctx.board + ":" + ctx.card, function () { return t.get("card", "shared"); })
     ]);
     const settings = window.TimeDuration.normalizeSettings(rawSettings);
-    const state = window.TimeModel.decode(raw);
+    const state = window.TimeModel.decode(raw && raw.time || raw);
     const summary = {
       settings: settings,
       ownMinutes: window.TimeModel.totalMinutes(state.entries),
@@ -50,7 +50,9 @@
     };
     if (state.limitMinutes == null) return summary;
     const full = await t.card("id", "checklists");
-    const related = await window.TimeRuntime.loadCardChildren(t, full, appKey(), window.TimeModel, window.TimeEpic, {
+    const related = await window.TimeRollupCache.loadCardChildren(t, full, appKey(), {
+      shared: raw,
+      persist: false,
       authStatus: false,
       cards: function () {
         return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink", "checklists"); });

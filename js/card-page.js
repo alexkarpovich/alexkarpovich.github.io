@@ -5,6 +5,7 @@
   let saving = false;
   let current = null;
   let currentMember = null;
+  let rollupNotice = "";
   const refresh = window.TimeRuntime.coalesce(reload);
 
   if (window.parent === window) {
@@ -204,13 +205,38 @@
     const next = change(state);
     // Relationships come from checklists, not a stale duplicate in pluginData.
     next.kids = null;
-    if (window.TimeModel.isEmpty(next)) {
-      await t.remove(card.id, "shared", "time");
-      return;
+    const primary = Object.assign({}, shared);
+    delete primary.rollup;
+    delete primary.rollupLinks;
+    let fit = window.TimeModel.isEmpty(next) ? null : window.TimeModel.fitState(next, primary);
+    let transaction;
+    rollupNotice = "";
+    try {
+      const full = await t.card("id", "name", "url", "shortLink", "checklists");
+      transaction = await window.TimeRollupCache.prepareChange(t, full, appKey(), shared);
+    } catch (error) {
+      rollupNotice = "Parent totals could not be refreshed. Reopen the epic to recalculate.";
     }
-    const fit = window.TimeModel.fitState(next, shared);
-    await t.set(card.id, "shared", "time", fit.packed);
-    if (fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
+    // Source logs have priority over derived keys when shared storage is full.
+    const latestShared = await t.get(card.id, "shared") || {};
+    const latestPrimary = Object.assign({}, latestShared);
+    delete latestPrimary.rollup;
+    delete latestPrimary.rollupLinks;
+    const fresh = JSON.stringify(latestShared.time) === JSON.stringify(shared && shared.time)
+      ? next : change(window.TimeModel.decode(latestShared.time));
+    fresh.kids = null;
+    fit = window.TimeModel.isEmpty(fresh) ? null : window.TimeModel.fitState(fresh, latestPrimary);
+    if (fit && JSON.stringify(Object.assign({}, latestShared, { time: fit.packed })).length > window.TimeModel.MAX_PLUGIN_CHARS) {
+      if (latestShared.rollup) await t.remove(card.id, "shared", "rollup");
+      if (latestShared.rollupLinks) await t.remove(card.id, "shared", "rollupLinks");
+    }
+    if (fit) await t.set(card.id, "shared", "time", fit.packed);
+    else await t.remove(card.id, "shared", "time");
+    if (transaction) {
+      try { await window.TimeRollupCache.finishChange(t, transaction, appKey(), fit ? fit.packed : null); }
+      catch (error) { rollupNotice = "Time saved. Parent totals will be recalculated when reopened."; }
+    }
+    if (fit && fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
   }
 
   function onAuthorize() {
@@ -231,11 +257,11 @@
       client.get("board", "shared", "settings", null),
       client.card("id", "name", "checklists"),
       client.member("id", "fullName", "username").catch(function () { return null; }),
-      client.get("card", "shared", "time", null)
+      client.get("card", "shared")
     ]);
     const settings = window.TimeDuration.normalizeSettings(rawSettings);
     currentMember = member ? { id: member.id, name: member.fullName || member.username || "You" } : null;
-    const state = window.TimeModel.decode(raw);
+    const state = window.TimeModel.decode(raw && raw.time || raw);
     const write = canWriteCard();
     const base = {
       cardId: card.id,
@@ -252,22 +278,20 @@
       unlinkedCount: 0,
       hasChecklists: !!(card.checklists && card.checklists.length),
       buildLabel: buildLabel(),
-      warning: "",
+      warning: rollupNotice,
       error: "",
       limitError: "",
       saving: saving,
       storageRatio: window.TimeModel.storageRatio(state)
     };
-    if (Array.isArray(card.checklists) && card.checklists.length === 0) return base;
+    if (Array.isArray(card.checklists) && card.checklists.length === 0 && !(raw && raw.rollup)) return base;
 
     // The time form and its entries are usable while optional epic data loads.
     current = Object.assign({}, base, { childrenLoading: true });
     view.update(current);
     let related;
     try {
-      related = await window.TimeRuntime.loadCardChildren(
-        client, card, appKey(), window.TimeModel, window.TimeEpic
-      );
+      related = await window.TimeRollupCache.loadCardChildren(client, card, appKey(), { shared: raw });
     } catch (error) {
       return Object.assign(base, {
         saving: saving,
@@ -275,7 +299,7 @@
       });
     }
     const { board, inspection, shortLinks, nameIndex } = related;
-    // Rendering never writes pluginData: opening a card cannot overwrite a log.
+    // Opening a card may repair derived summaries; source logs are kept separately.
 
     const kids = (inspection.childIds || []).slice();
     const byId = new Map(board.boardCards.map(function (item) { return [item.id, item]; }));
@@ -293,7 +317,7 @@
     });
 
     const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
-    const dated = children.reduce(function (all, child) { return all.concat(child.entries || []); }, []);
+    const dated = board.entries || children.reduce(function (all, child) { return all.concat(child.entries || []); }, []);
     const today = window.TimeDuration.formatYmd(new Date());
     const earliest = dated.length ? dated.map(function (entry) { return window.TimeDuration.ymdString(entry.ymd); }).sort()[0] : today;
     const estimatedFinish = state.limitMinutes != null && dated.length

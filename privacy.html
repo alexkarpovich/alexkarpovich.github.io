@@ -32,6 +32,7 @@
       <li><strong>Time entries</strong> — date, duration, optional comment, Trello member ID and display name of the author.</li>
       <li><strong>Board settings</strong> — work-day length, work-week length, week start (shared on the board).</li>
       <li><strong>Epic limits</strong> — time budget stored on a card when you set a limit.</li>
+      <li><strong>Epic summaries</strong> — calculated durations, totals by date, linked card IDs, names and URLs are cached in shared card data to speed up loading.</li>
       <li><strong>Authorization (optional)</strong> — if you click “Allow read access”, Trello issues a read-only API token held by Trello for this Power-Up on your account (used only to load checklist items for epic remaining time).</li>
     </ul>
     <p>
@@ -41,8 +42,8 @@
 
     <h2>Where data is stored</h2>
     <ul>
-      <li><strong>Trello</strong> — shared plugin data on cards and boards (entries, settings, limits).</li>
-      <li><strong>Your device</strong> — when you export a report, a spreadsheet XML file is generated and downloaded locally; we do not receive that file.</li>
+      <li><strong>Trello</strong> — shared plugin data on cards and boards (entries, settings, limits and calculated epic summaries).</li>
+      <li><strong>Your device</strong> — when you export a report, an XLSX spreadsheet is generated and downloaded locally; we do not receive that file.</li>
       <li><strong>Hosting (GitHub Pages)</strong> — static HTML, JavaScript, and CSS files are served from GitHub Pages. Standard web server logs (IP address, user agent, requested URL, timestamps) may be processed by GitHub as described in <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener noreferrer" target="_blank">GitHub’s Privacy Statement</a>. We do not use analytics or advertising scripts in the Power-Up pages.</li>
     </ul>
 

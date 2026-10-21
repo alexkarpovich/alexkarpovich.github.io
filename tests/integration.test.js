@@ -10,6 +10,7 @@ const runtime = require("../js/runtime");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function runPage(name, window, extra = {}) {
+  if (window.TimeRuntime) window.TimeRollupCache = require("../js/rollup-cache");
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../js", name), "utf8"), {
     window, URL, console, ...extra
   });
@@ -40,11 +41,12 @@ function cardHarness(overrides = {}) {
     set: async (scope, visibility, key, value) => {
       await tick();
       if (rejectWrite) throw new Error("offline write");
-      shared[key] = structuredClone(value);
+      if (typeof key === "object") Object.assign(shared, structuredClone(key));
+      else shared[key] = structuredClone(value);
       writes++;
       if (rejectRefresh) rejectRead = true;
     },
-    remove: async () => { shared = {}; writes++; },
+    remove: async (scope, visibility, key) => { delete shared[key]; writes++; },
     sizeTo: async () => {},
     cards: async () => []
   };
@@ -183,6 +185,67 @@ test("full shared storage rejects a save without a write", async () => {
   await assert.rejects(h.handlers().onAdd(fields), { code: "STORAGE_FULL" });
   assert.equal(h.writes(), 0);
   assert.equal(h.latest().saving, false);
+});
+
+test("saving through the card controller updates persisted parent totals and reopening uses the cache", async () => {
+  const root = { id: "ui-cached-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "ui-cached-task" }] }] };
+  const task = { id: "ui-cached-task", name: "Task", checklists: [] };
+  const data = new Map([[root.id, { time: { lim: 240, e: [] } }], [task.id, {}]]);
+  let current = task, scans = 0;
+  const h = cardHarness({
+    getContext: () => ({ board: "ui-cache-board", permissions: { board: "write" } }),
+    card: async () => structuredClone(current),
+    cards: async () => { scans++; return structuredClone([root, task]); },
+    get: async (scope, visibility, key, fallback) => {
+      if (scope === "board") return fallback;
+      const shared = data.get(scope === "card" ? current.id : scope) || {};
+      return structuredClone(key ? shared[key] === undefined ? fallback : shared[key] : shared);
+    },
+    set: async (scope, visibility, key, value) => {
+      const previous = data.get(scope) || {};
+      data.set(scope, { ...previous, ...structuredClone(typeof key === "object" ? key : { [key]: value }) });
+    },
+    remove: async (scope, visibility, key) => { delete data.get(scope)[key]; }
+  });
+  await h.render();
+  await h.handlers().onAdd(fields);
+  assert.equal(data.get(root.id).rollup.c[0][3], 30);
+  const entry = h.latest().entries[0];
+  await h.handlers().onUpdate({ ...entry, minutes: 75 });
+  assert.equal(data.get(root.id).rollup.c[0][3], 75);
+  current = root;
+  const scansBeforeOpen = scans;
+  await h.render();
+  assert.equal(h.latest().kidsKnown, true);
+  assert.equal(h.latest().children[0].minutes, 75);
+  assert.equal(scans, scansBeforeOpen, "reopening the parent skips dependency discovery");
+  current = task;
+  await h.render();
+  await h.handlers().onDelete(entry.id);
+  assert.equal(data.get(root.id).rollup.c[0][3], 0);
+  assert.equal(data.get(task.id).time, undefined);
+});
+
+test("derived cache cannot prevent a source time entry from fitting shared storage", async () => {
+  const h = cardHarness();
+  await h.render();
+  h.shared({ rollup: { v: 1, dirty: "old", padding: "x".repeat(3850) } });
+  await h.handlers().onAdd(fields);
+  assert.equal(h.latest().entries.length, 1);
+  assert.equal(h.latest().entries[0].minutes, 30);
+});
+
+test("the controller rereads source logs after dependency discovery before writing", async () => {
+  const incoming = { who: [["other", "Other"]], e: [["incoming", 20261020, 45, 0]] };
+  const h = cardHarness({ cards: async () => {
+    h.shared({ time: incoming });
+    return [];
+  } });
+  await h.render();
+  await h.handlers().onAdd(fields);
+  assert.equal(h.latest().entries.length, 2);
+  assert.equal(h.latest().entries.find(entry => entry.id === "incoming").minutes, 45);
+  assert.equal(h.latest().entries.find(entry => entry.memberId === "me").minutes, 30);
 });
 
 test("200 simultaneous badge callbacks use 101 reads with at most eight in flight", async () => {

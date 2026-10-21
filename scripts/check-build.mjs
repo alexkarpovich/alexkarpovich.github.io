@@ -48,4 +48,29 @@ assert.equal((await capabilities["card-badges"](client))[0].text, "30m");
 minutes = 60;
 assert.equal((await capabilities["card-badges"](client))[0].text, "1h", "completed results must not be cached");
 
-console.log("Production checks passed: resource hashes, budgets, script order, connector registration and fresh badge data.");
+// Exercise the persistent-cache path in the shipped, minified connector too.
+const epicCard = { id: "built-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "built-task" }] }] };
+const taskCard = { id: "built-task", name: "Task", checklists: [] };
+const shared = new Map([
+  [epicCard.id, { time: { lim: 120, e: [] } }],
+  [taskCard.id, { time: { e: [["entry", 20261020, 30, 0]] } }]
+]);
+let scans = 0;
+const cacheClient = {
+  getContext: () => ({ board: "built-board", card: epicCard.id, permissions: { board: "write" } }),
+  card: async () => epicCard,
+  cards: async () => { scans++; return [epicCard, taskCard]; },
+  get: async (scope, visibility, key, fallback) => {
+    if (scope === "board") return fallback;
+    const data = shared.get(scope === "card" ? epicCard.id : scope) || {};
+    return structuredClone(key ? data[key] === undefined ? fallback : data[key] : data);
+  },
+  set: async (id, visibility, values) => { shared.set(id, { ...shared.get(id), ...values }); },
+  remove: async (id, visibility, key) => { delete shared.get(id)[key]; }
+};
+await window.TimeRollupCache.loadCardChildren(cacheClient, epicCard, "", { shared: shared.get(epicCard.id) });
+const beforeCachedBadge = scans;
+assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "1h 30m left");
+assert.equal(scans, beforeCachedBadge, "a cached epic badge must not scan the board");
+
+console.log("Production checks passed: resource hashes, budgets, script order, connector registration, fresh logs and persisted epic totals.");

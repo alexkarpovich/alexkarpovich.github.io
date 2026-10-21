@@ -257,18 +257,18 @@
   // No board scan, token lookup, or REST request for a card without checklists.
   async function loadCardChildren(client, card, appKey, modelApi, epicApi, options) {
     const opts = options || {};
-    const getRest = lazyCredentials(client, appKey);
+    const getRest = opts.getRest || lazyCredentials(client, appKey);
     const empty = Array.isArray(card.checklists) && card.checklists.length === 0;
     const boardCards = empty ? [] : await (opts.cards
       ? opts.cards()
       : client.cards("id", "name", "url", "shortLink", "checklists"));
     const shortLinks = new Map(boardCards.map(function (item) { return [item.shortLink, item.id]; }));
     const nameIndex = epicApi.uniqueNameIndex(boardCards);
-    const inspection = empty
+    const inspection = opts.inspections && opts.inspections.get(card.id) || (empty
       ? { complete: true, childIds: [], checklists: [], unlinkedCount: 0 }
       : await resolveChecklistInspection(client, card.id, card, true, appKey, epicApi, {
         boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
-      });
+      }));
     const byId = new Map(boardCards.map(function (item) { return [item.id, item]; }));
     const inspections = new Map([[card.id, inspection]]);
     const timeById = new Map(), unreadableIds = new Set(), seen = new Set([card.id]);
@@ -287,7 +287,7 @@
       const nested = await mapPool(layer, 4, async function (id) {
         const info = byId.get(id), state = modelApi.decode(timeById.get(id));
         if (state.limitMinutes == null && !(info.checklists && info.checklists.length)) return [];
-        const childInspection = await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
+        const childInspection = opts.inspections && opts.inspections.get(id) || await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
           boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
         });
         inspections.set(id, childInspection);
@@ -324,7 +324,7 @@
     // Only epic/checklist UI needs authorization state; ordinary cards skip it.
     board.rest = empty || opts.authStatus === false ? null : await getRest();
     board.boardCards = boardCards;
-    return { board: board, inspection: inspection, shortLinks: shortLinks, nameIndex: nameIndex };
+    return { board: board, inspection: inspection, shortLinks: shortLinks, nameIndex: nameIndex, inspections: inspections };
   }
 
   async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi, boardContext) {
