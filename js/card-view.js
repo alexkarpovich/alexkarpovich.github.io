@@ -88,7 +88,8 @@
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
       formError
     ]);
-    const logSummary = h("summary", { hidden: true }, "Log time on this card");
+    const logSummary = h("summary", { hidden: true, "aria-label": "Time entries", title: "Show or hide time entries" });
+    logSummary.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>';
     const logDetails = h("details", { class: "log-details", open: true }, [
       logSummary, form, addHint, editHost, total, list
     ]);
