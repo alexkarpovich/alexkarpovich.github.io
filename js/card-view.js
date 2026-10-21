@@ -88,12 +88,22 @@
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
       formError
     ]);
-    const logSummary = h("summary", { hidden: true, "aria-label": "Time entries", title: "Show or hide time entries" });
-    logSummary.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>';
-    const logDetails = h("details", { class: "log-details", open: true }, [
-      logSummary, form, addHint, editHost, total, list
-    ]);
+    const logPanel = h("div", { class: "log-panel", id: "card-log-panel" }, [form, addHint, editHost, total, list]);
+    const logToggle = h("button", {
+      type: "button", class: "log-toggle", "aria-controls": "card-log-panel", "aria-expanded": "true",
+      "aria-label": "Hide time entries", title: "Hide time entries",
+      onclick: function () { setLogOpen(logPanel.hidden); }
+    });
+    logToggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"/></svg>';
     let epicMode = false;
+
+    function setLogOpen(open) {
+      logPanel.hidden = !open;
+      logToggle.setAttribute("aria-expanded", String(open));
+      const label = open ? "Hide time entries" : "Show time entries";
+      logToggle.setAttribute("aria-label", label);
+      logToggle.title = label;
+    }
 
     const limitForm = h("form", { class: "limit-form" }, [
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
@@ -101,6 +111,7 @@
     ]);
     const epicHelp = helpTip("Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.");
     const epicSection = h("section", { class: "epic", hidden: true }, [
+      h("div", { class: "epic-divider" }, logToggle),
       h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
       limitSummary,
       limitForm,
@@ -108,7 +119,7 @@
     ]);
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
-      logDetails,
+      logPanel,
       storage,
       debugHost,
       epicSection
@@ -131,9 +142,9 @@
       }).then(function () {
         duration.value = "";
         note.value = "";
-        if (logDetails.open && !form.hidden) duration.focus();
+        if (!logPanel.hidden && !form.hidden) duration.focus();
       }).catch(function (error) {
-        logDetails.open = true;
+        setLogOpen(true);
         formError.textContent = error.message || "Could not save entry.";
       });
     });
@@ -273,9 +284,8 @@
         closeEdit();
       }
       const showEpic = !!(model.children.length || model.limitMinutes != null || model.hasChecklists);
-      if (cardChanged || showEpic !== epicMode) logDetails.open = !showEpic;
+      if (cardChanged || showEpic !== epicMode) setLogOpen(!showEpic);
       epicMode = showEpic;
-      logSummary.hidden = !showEpic;
 
       const canWrite = model.canWrite !== false;
       const canAdd = model.canAdd !== false;
@@ -294,7 +304,7 @@
 
       if (model.error) {
         formError.textContent = model.error;
-        logDetails.open = true;
+        setLogOpen(true);
       }
       if (model.limitError) limitError.textContent = model.limitError;
 
