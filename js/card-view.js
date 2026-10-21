@@ -111,8 +111,10 @@
     ]);
     const epicHelp = helpTip("Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.");
     const epicSection = h("section", { class: "epic", hidden: true }, [
-      h("div", { class: "epic-divider" }, logToggle),
-      h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
+      h("div", { class: "epic-header" }, [
+        h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
+        h("div", { class: "epic-divider" }, logToggle)
+      ]),
       limitSummary,
       limitForm,
       epicBody
@@ -431,7 +433,7 @@
       epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings) + " of " + format(model.limitMinutes, settings)));
       if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
         "Est. finish: " + model.estimatedFinish,
-        helpTip("Based on the average logged time per working day. Weekends and excluded dates in board settings are skipped.")
+        helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped.")
       ]));
 
       if (!model.children.length) {

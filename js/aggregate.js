@@ -175,7 +175,7 @@
       const children = descendants(card, 1);
       const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
       const hasPeriodActivity = periodEntries.length > 0;
-      const estimate = epicApi.estimateFinish(card.limitMinutes - spent, periodEntries, from, to, filters.settings);
+      const estimate = epicApi.estimateFinish(card.limitMinutes - spent, filters.settings, filters.today);
       const known = !children.some(function (child) { return child.missing; });
       return {
         cardId: card.id,

@@ -464,8 +464,9 @@ button:disabled,
   border-radius: var(--control-radius);
 }
 
-.epic { margin-top: 8px; }
-.epic-divider { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.epic-header { display: flex; align-items: center; gap: 8px; }
+.epic .epic-heading { margin: 0; flex-shrink: 0; }
+.epic-divider { display: flex; align-items: center; flex: 1; min-width: 0; gap: 6px; }
 .epic-divider::before, .epic-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .trello-power-up .log-toggle {
   display: inline-flex;

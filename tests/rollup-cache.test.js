@@ -81,8 +81,9 @@ test("cold epic is persisted; reopening reads neither descendants nor board meta
   assert.equal(h.writes.length, writes);
   assert.equal(reopened.board.entries.reduce((sum, entry) => sum + entry.minutes, 0), 90);
   const settings = { excludedDates: ["2026-10-21"] };
-  assert.equal(epic.estimateFinish(510, reopened.board.entries, "2026-10-20", "2026-10-20", settings),
-    epic.estimateFinish(510, [{ ymd: 20261020, minutes: 90 }], "2026-10-20", "2026-10-20", settings));
+  const today = new Date(2026, 9, 20, 12);
+  const remaining = 600 - reopened.board.entries.reduce((sum, entry) => sum + entry.minutes, 0);
+  assert.equal(epic.estimateFinish(remaining, settings, today), epic.estimateFinish(510, settings, today));
 });
 
 test("adding, editing and deleting task time updates all ancestors without opening them", async () => {
@@ -178,13 +179,14 @@ test("an earlier propagation cannot replace a newer invalidation token", async (
   assert.equal(cache.valid(h.data.get(h.id("root")).rollup, h.card("root")), true);
 });
 
-test("cached daily aggregates use the current board calendar for the estimate", async () => {
+test("cached totals use the current board calendar for the estimate", async () => {
   const h = fixture();
   await h.load();
   const related = await h.load();
-  const entries = related.board.entries;
-  assert.equal(epic.estimateFinish(90, entries, "2026-10-20", "2026-10-20", duration.normalizeSettings(null)), "2026-10-21");
-  assert.equal(epic.estimateFinish(90, entries, "2026-10-20", "2026-10-20", { excludedDates: ["2026-10-21"] }), "2026-10-22");
+  const spent = related.board.entries.reduce((sum, entry) => sum + entry.minutes, 0);
+  const today = new Date(2026, 9, 20, 12);
+  assert.equal(epic.estimateFinish(570 - spent, duration.normalizeSettings(null), today), "2026-10-21");
+  assert.equal(epic.estimateFinish(570 - spent, { excludedDates: ["2026-10-21"] }, today), "2026-10-22");
 });
 
 test("the first task save discovers and populates every parent even before an epic was opened", async () => {

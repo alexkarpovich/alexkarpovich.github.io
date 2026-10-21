@@ -317,11 +317,8 @@
     });
 
     const spent = children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
-    const dated = board.entries || children.reduce(function (all, child) { return all.concat(child.entries || []); }, []);
-    const today = window.TimeDuration.formatYmd(new Date());
-    const earliest = dated.length ? dated.map(function (entry) { return window.TimeDuration.ymdString(entry.ymd); }).sort()[0] : today;
-    const estimatedFinish = state.limitMinutes != null && dated.length
-      ? window.TimeEpic.estimateFinish(state.limitMinutes - spent, dated, earliest, today, settings)
+    const estimatedFinish = state.limitMinutes != null
+      ? window.TimeEpic.estimateFinish(state.limitMinutes - spent, settings, new Date())
       : "";
     const debugEpic = debugEnabled() ? {
       build: buildLabel(),

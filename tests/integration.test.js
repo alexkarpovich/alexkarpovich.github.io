@@ -16,7 +16,7 @@ function runPage(name, window, extra = {}) {
   });
 }
 
-function cardHarness(overrides = {}) {
+function cardHarness(overrides = {}, environment = {}) {
   let render;
   let handlers;
   let latest;
@@ -67,7 +67,8 @@ function cardHarness(overrides = {}) {
   };
   runPage("card-page.js", window, {
     document: { getElementById: id => id === "app" ? {} : null },
-    requestAnimationFrame: callback => callback()
+    requestAnimationFrame: callback => callback(),
+    ...environment
   });
   return {
     render: () => render(), handlers: () => handlers, latest: () => latest,
@@ -233,6 +234,44 @@ test("derived cache cannot prevent a source time entry from fitting shared stora
   await h.handlers().onAdd(fields);
   assert.equal(h.latest().entries.length, 1);
   assert.equal(h.latest().entries[0].minutes, 30);
+});
+
+test("reopening an epic advances the forecast from today even when totals come from cache", async () => {
+  let today = "2026-10-21";
+  class ViewDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [today + "T12:00:00Z"])); }
+  }
+  const root = { id: "stable-date-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "stable-date-task" }] }] };
+  const task = { id: "stable-date-task", name: "Task", checklists: [] };
+  const data = new Map([
+    [root.id, { time: { lim: 9600, e: [] } }],
+    [task.id, { time: { e: [["first", 20261019, 1200, 0], ["last", 20261020, 1200, 0]] } }]
+  ]);
+  let scans = 0;
+  const h = cardHarness({
+    getContext: () => ({ board: "stable-date-board", permissions: { board: "write" } }),
+    card: async () => root,
+    cards: async () => { scans++; return [root, task]; },
+    get: async (scope, visibility, key, fallback) => {
+      if (scope === "board") return fallback;
+      const shared = data.get(scope === "card" ? root.id : scope) || {};
+      return structuredClone(key ? shared[key] === undefined ? fallback : shared[key] : shared);
+    },
+    set: async (scope, visibility, values) => { Object.assign(data.get(scope), structuredClone(values)); },
+    remove: async (scope, visibility, key) => { delete data.get(scope)[key]; }
+  }, { Date: ViewDate });
+  await h.render();
+  assert.equal(h.latest().estimatedFinish, "2026-11-11");
+  const coldScans = scans;
+  today = "2026-10-22";
+  await h.render();
+  assert.equal(h.latest().estimatedFinish, "2026-11-12");
+  assert.equal(scans, coldScans, "warm reopening uses the same cached daily totals");
+  data.get(root.id).rollup.t = 0;
+  today = "2026-10-23";
+  await h.render();
+  assert.ok(scans > coldScans);
+  assert.equal(h.latest().estimatedFinish, "2026-11-13", "cache recovery uses the current day too");
 });
 
 test("the controller rereads source logs after dependency discovery before writing", async () => {
