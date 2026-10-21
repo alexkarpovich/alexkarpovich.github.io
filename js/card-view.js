@@ -89,7 +89,9 @@
       formError
     ]);
     const logSummary = h("summary", { hidden: true }, "Log time on this card");
-    const logDetails = h("details", { class: "log-details", open: true }, [logSummary, form, addHint]);
+    const logDetails = h("details", { class: "log-details", open: true }, [
+      logSummary, form, addHint, editHost, total, list
+    ]);
     let epicMode = false;
 
     const limitForm = h("form", { class: "limit-form" }, [
@@ -106,9 +108,6 @@
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
       logDetails,
-      editHost,
-      total,
-      list,
       storage,
       debugHost,
       epicSection
