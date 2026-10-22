@@ -55,7 +55,7 @@ const epicCard = { id: "built-epic", name: "Epic", checklists: [
 ] };
 const taskCard = { id: "built-task", name: "Task", checklists: [] };
 const shared = new Map([
-  [epicCard.id, { time: { lim: 120, e: [] } }],
+  [epicCard.id, { time: { lc: [taskCard.id], lim: 120, e: [] } }],
   [taskCard.id, { time: { e: [["entry", 20261020, 30, 0]] } }]
 ]);
 let scans = 0;
@@ -75,7 +75,7 @@ await window.TimeRollupCache.loadCardChildren(cacheClient, epicCard, "", { share
 const beforeCachedBadge = scans;
 assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "1h 30m left");
 assert.equal(scans, beforeCachedBadge, "a cached epic badge must not scan the board");
-shared.get(epicCard.id).time.sc = "dependencies";
-assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "limit 2h", "manual selection must reject the previous automatic cache and keep missing dependencies unknown");
+shared.get(epicCard.id).time.lc = ["unavailable-dependency"];
+assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "limit 2h", "changing owned links must reject the previous cache and keep missing dependencies unknown");
 
 console.log("Production checks passed: resource hashes, budgets, script order, connector registration, fresh logs and persisted epic totals.");

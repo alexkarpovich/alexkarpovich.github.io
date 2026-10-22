@@ -19,12 +19,7 @@
     return permissions.board === "write" || permissions.card === "write";
   }
   function signature(card) {
-    const selected = epic.selectChecklists(card.checklists, card.subtasksChecklistId);
-    const text = JSON.stringify([card.subtasksChecklistId || null, selected == null ? null : selected.map(function (list) {
-      return [list.id || "", Array.isArray(list.checkItems) ? list.checkItems.map(function (item) {
-        return [item.id || "", item.name || "", epic.cardIdFromCheckItem(item)];
-      }) : null];
-    })]);
+    const text = JSON.stringify(card.linkedIds || []);
     let hash = 2166136261;
     for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
     return (hash >>> 0).toString(36);
@@ -51,7 +46,7 @@
     return {
       cached: true,
       inspection: { complete: true, childIds: cards.map(function (card) { return card.id; }), unlinkedCount: cache.u || 0,
-        checklists: epic.selectChecklists(card.checklists, card.subtasksChecklistId), allChecklists: card.checklists },
+        linkedIds: card.linkedIds },
       board: { boardCards: cards, unreadableIds: new Set(), timeById: new Map(),
         totalsById: new Map(cache.c.map(function (row) { return [row[0], { minutes: row[3], entries: [], missing: false }]; })),
         entries: cache.d.map(function (row) { return { ymd: row[0], minutes: row[1] }; }) },
@@ -101,70 +96,33 @@
   }
 
   async function graphFor(client, card, appKey) {
-    let cards = await client.cards("id", "name", "url", "shortLink", "checklists");
+    let cards = await client.cards("id", "name", "url", "shortLink");
     const existing = (cards || []).find(function (item) { return item.id === card.id; });
-    cards = (cards || []).filter(function (item) { return item.id !== card.id; }).concat([Object.assign({}, existing, card)]);
+    card = Object.assign({}, existing, card);
+    const rawTimes = new Map();
+    cards = (cards || []).filter(function (item) { return item.id !== card.id; }).concat([card]);
     let credentials;
     const getRest = function () {
       if (!credentials) credentials = runtime.restCredentials(client, appKey);
       return credentials;
     };
-    async function withChecklistChoice(item) {
-      if (item.subtasksChecklistId !== undefined) return item;
-      // Empty ordinary cards need no additional read; grouping cards need their saved choice.
-      if (Array.isArray(item.checklists) && !item.checklists.length) return item;
+    cards = await runtime.mapPool(cards, 8, async function (item) {
+      if (Array.isArray(item.linkedIds)) return item;
       const raw = await runtime.readSharedTime(client, item.id, getRest, model);
-      return Object.assign({}, item, { subtasksChecklistId: raw === undefined ? false : model.decode(raw).subtasksChecklistId });
-    }
-    cards = await runtime.mapPool(cards, 8, withChecklistChoice);
-    const sourceById = new Map(cards.map(function (item) { return [item.id, item]; }));
-    let links = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
-    let names = epic.uniqueNameIndex(cards);
-    const incomplete = cards.some(function (item) {
-      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names, item.subtasksChecklistId);
-      return epic.needsRemoteChecklists(parsed, item.checklists);
+      rawTimes.set(item.id, raw);
+      return Object.assign({}, item, { linkedIds: model.decode(raw).linkedIds, linksKnown: raw !== undefined });
     });
-    const remoteIds = new Set();
-    if (incomplete && appKey) {
-      const rest = await getRest();
-      if (rest) {
-        try {
-          const ctx = client.getContext && client.getContext();
-          const boardId = ctx && ctx.board || (await client.board("id")).id;
-          const remote = await runtime.fetchJson("https://api.trello.com/1/boards/" + encodeURIComponent(boardId) +
-            "/cards?filter=visible&fields=id&checklists=all&checkItem_fields=name,state&key=" + encodeURIComponent(appKey) + "&token=" + encodeURIComponent(rest.token));
-          const checklists = new Map(remote.map(function (item) { return [item.id, item.checklists]; }));
-          cards = cards.map(function (item) {
-            if (!checklists.has(item.id)) return item;
-            remoteIds.add(item.id);
-            return Object.assign({}, item, { checklists: checklists.get(item.id) });
-          });
-        } catch (error) { /* Partial metadata remains unknown; live reads can retry individual cards. */ }
-      }
-    }
-    // A board REST response can reveal checklists omitted entirely by the SDK.
-    if (remoteIds.size) {
-      cards = await runtime.mapPool(cards, 8, withChecklistChoice);
-      cards.forEach(function (item) {
-        sourceById.set(item.id, Object.assign({}, sourceById.get(item.id), { subtasksChecklistId: item.subtasksChecklistId }));
-      });
-    }
     const inspections = new Map(), parents = new Map();
     cards.forEach(function (item) {
-      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names, item.subtasksChecklistId);
-      if (parsed.complete && (remoteIds.has(item.id) || !epic.needsRemoteChecklists(parsed, item.checklists))) {
-        inspections.set(item.id, Object.assign({}, parsed, {
-          subtasksChecklistId: item.subtasksChecklistId,
-          checklists: epic.selectChecklists(item.checklists, item.subtasksChecklistId), allChecklists: item.checklists,
-          remoteChecklistsFetched: remoteIds.has(item.id) }));
-      }
-      (parsed.childIds || []).forEach(function (id) {
+      const parsed = { complete: item.linksKnown !== false, childIds: item.linkedIds, unlinkedCount: 0 };
+      inspections.set(item.id, parsed);
+      item.linkedIds.forEach(function (id) {
         if (!parents.has(id)) parents.set(id, new Set());
         parents.get(id).add(item.id);
       });
     });
-    return { cards: cards, byId: new Map(cards.map(function (item) { return [item.id, item]; })), sourceById: sourceById,
-      inspections: inspections, parents: parents, getRest: getRest };
+    const byId = new Map(cards.map(function (item) { return [item.id, item]; }));
+    return { cards: cards, byId: byId, sourceById: byId, inspections: inspections, parents: parents, getRest: getRest, rawTimes: rawTimes };
   }
   async function addKnownParents(client, graph, cardId, shared) {
     const queue = [cardId], visited = new Set();
@@ -197,7 +155,7 @@
     return found;
   }
   async function prepareChange(client, card, appKey, shared) {
-    card = Object.assign({}, card, { subtasksChecklistId: model.decode(scope(shared).time).subtasksChecklistId });
+    card = Object.assign({}, card, { linkedIds: model.decode(scope(shared).time).linkedIds });
     let graph;
     try { graph = await graphFor(client, card, appKey); }
     catch (error) {
@@ -208,7 +166,7 @@
     const affected = ancestors(graph, card.id);
     const rootInspection = graph.inspections.get(card.id);
     if (scope(shared)[KEY] || model.decode(scope(shared).time).limitMinutes != null ||
-      rootInspection && rootInspection.childIds.length || card.checklists && card.checklists.length) affected.add(card.id);
+      rootInspection && rootInspection.childIds.length || card.linkedIds && card.linkedIds.length) affected.add(card.id);
     const token = Date.now().toString(36) + Math.random().toString(36).slice(2);
     await runtime.mapPool(Array.from(affected), 4, function (id) { return invalidate(client, id, token); });
     const previous = scope(shared);
@@ -234,11 +192,11 @@
   }
   async function finishChange(client, transaction, appKey, changedTime) {
     if (transaction.graph.failed) throw new Error("Parent relationships could not be refreshed.");
-    if (arguments.length >= 4 && model.decode(changedTime).subtasksChecklistId !== transaction.card.subtasksChecklistId) {
-      transaction.card = Object.assign({}, transaction.card, { subtasksChecklistId: model.decode(changedTime).subtasksChecklistId });
+    if (arguments.length >= 4 && !epic.sameIds(model.decode(changedTime).linkedIds, transaction.card.linkedIds)) {
+      transaction.card = Object.assign({}, transaction.card, { linkedIds: model.decode(changedTime).linkedIds });
       transaction.graph = await graphFor(client, transaction.card, appKey);
     }
-    const graph = transaction.graph, reads = new Map(), results = new Map(), touched = new Set();
+    const graph = transaction.graph, reads = new Map(Array.from(transaction.graph.rawTimes || []).map(function (row) { return [row[0], Promise.resolve(row[1])]; })), results = new Map(), touched = new Set();
     if (arguments.length >= 4) reads.set(transaction.card.id, Promise.resolve(changedTime));
     const options = { cards: function () { return Promise.resolve(graph.cards); }, getRest: graph.getRest,
       inspections: graph.inspections, read: function (id, work) {
@@ -269,7 +227,7 @@
   }
   async function loadCardChildren(client, card, appKey, options) {
     const opts = options || {}, shared = scope(opts.shared);
-    card = Object.assign({}, card, { subtasksChecklistId: model.decode(shared.time).subtasksChecklistId });
+    card = Object.assign({}, card, { linkedIds: model.decode(shared.time).linkedIds });
     if (!opts.force && !failedWrites.has(card.id) && valid(shared[KEY], card)) return hydrate(shared[KEY], card);
     const ctx = client.getContext && client.getContext();
     const key = (ctx && ctx.board || "") + ":" + card.id;
@@ -278,13 +236,9 @@
       const persist = opts.persist !== false && canWrite(client) &&
         (opts.force || Date.now() - (failedWrites.get(card.id) || 0) > 60000);
       if (!persist) return runtime.loadCardChildren(client, card, appKey, model, epic, opts);
-      // Rebuilding also repairs ancestors when this card's checklist changed.
+      // Rebuilding also repairs ancestors when this card's linked cards changed.
       const tx = await prepareChange(client, card, appKey, shared);
       tx.affected.add(card.id);
-      if (!shared[KEY] && !(tx.graph.inspections.get(card.id) && tx.graph.inspections.get(card.id).childIds.length) &&
-        !(card.checklists && card.checklists.length)) {
-        return runtime.loadCardChildren(client, card, appKey, model, epic, opts);
-      }
       // First-ever parents may not have existed when prepareChange invalidated.
       let rootShared = shared;
       try { rootShared = scope(await client.get(card.id, "shared")); } catch (error) { /* Live totals still work without cache writes. */ }

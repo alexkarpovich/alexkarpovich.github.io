@@ -82,104 +82,71 @@ function cardHarness(overrides = {}, environment = {}) {
 
 const fields = { ymd: 20261020, minutes: 30, note: "Review" };
 
-test("card selection is shared, defaults to first, survives log edits and can reset to automatic", async () => {
-  const root = { id: "selection-root", checklists: [
-    { id: "tasks", name: "Sub-tasks", pos: 10, checkItems: [{ idCard: "task-a" }] },
-    { id: "deps", name: "Depends on", pos: 20, checkItems: [{ idCard: "task-b" }] }
-  ] };
-  const cards = [root, { id: "task-a", checklists: [] }, { id: "task-b", checklists: [] }];
-  const data = new Map([
-    [root.id, { time: { lim: 120, e: [] } }],
-    ["task-a", { time: { e: [["a", 20261020, 30, 0]] } }],
-    ["task-b", { time: { e: [["b", 20261020, 90, 0]] } }]
-  ]);
+test("owned card links persist without limits and ignore native checklists", async () => {
+  const root = { id: "links-root", shortLink: "root", checklists: [{ checkItems: [{ idCard: "unrelated" }] }] };
+  const task = { id: "task", shortLink: "task", name: "Task", url: "https://trello.com/c/task" };
+  const data = new Map([[root.id, {}], [task.id, { time: { e: [["work", 20261020, 30, 0]] } }]]);
   const h = cardHarness({
-    card: async () => structuredClone(root), cards: async () => structuredClone(cards),
+    card: async () => root, cards: async () => [root, task],
     get: async (id, visibility, key, fallback) => {
       if (id === "board") return fallback;
       const raw = data.get(id === "card" ? root.id : id) || {};
       return structuredClone(key ? raw[key] ?? fallback : raw);
     },
-    set: async (id, visibility, key, value) => {
-      assert.equal(visibility, "shared");
-      Object.assign(data.get(id), typeof key === "object" ? key : { [key]: structuredClone(value) });
-    },
+    set: async (id, visibility, key, value) => Object.assign(data.get(id), typeof key === "object" ? key : { [key]: structuredClone(value) }),
     remove: async (id, visibility, key) => { delete data.get(id)[key]; }
   });
   await h.render();
-  assert.equal(h.latest().subtasksChecklistId, null);
-  assert.equal(h.latest().children[0].id, "task-a");
-  await h.handlers().onChecklist("deps");
-  assert.equal(data.get(root.id).time.sc, "deps");
-  assert.equal(h.latest().children[0].id, "task-b");
+  assert.equal(h.latest().children.length, 0);
+  await h.handlers().onLinkAdd(task.url);
+  assert.deepEqual(data.get(root.id).time.lc, [task.id]);
+  assert.equal(h.latest().children[0].minutes, 30);
+  assert.equal(h.latest().limitMinutes, null);
+  for (const [url, message] of [[task.url, /already linked/], ["https://trello.com/c/root", /itself/], ["https://evil.com/c/task", /Trello card URL/], ["https://trello.com/c/missing", /not found/]]) {
+    await assert.rejects(h.handlers().onLinkAdd(url), message);
+  }
   await h.handlers().onAdd(fields);
-  await h.handlers().onLimit(null);
-  await h.handlers().onDelete(h.latest().entries[0].id);
-  assert.equal(data.get(root.id).time.sc, "deps", "choice survives deleting the last log and limit");
-  root.checklists[1].name = "Renamed";
-  root.checklists[0].pos = 30;
-  await h.render();
-  assert.equal(h.latest().children[0].id, "task-b");
+  await h.handlers().onLimit(120);
+  assert.deepEqual(data.get(root.id).time.lc, [task.id]);
   h.writable(false);
-  await assert.rejects(h.handlers().onChecklist("tasks"), /read-only/);
+  await assert.rejects(h.handlers().onLinkRemove(task.id), /read-only/);
+  await assert.rejects(h.handlers().onLinkAdd(task.url), /read-only/);
   h.writable(true);
-  await assert.rejects(h.handlers().onChecklist("gone"), /no longer available/);
-  await h.handlers().onChecklist("");
-  assert.equal(data.get(root.id).time, undefined, "automatic mode needs no source data on an empty card");
-  assert.equal(h.latest().children[0].id, "task-b", "automatic uses the new first position");
+  data.get(task.id).time.lc = [root.id];
+  await assert.rejects(h.handlers().onLinkAdd(task.url), /circular/);
+  delete data.get(task.id).time.lc;
+  await h.handlers().onLinkRemove(task.id);
+  assert.equal(h.latest().children.length, 0);
+  assert.equal(h.latest().entries.length, 1);
 });
 
-test("reports and badges use the same selected checklist as the card, including REST fallback", async t => {
-  const root = { id: "report-selection-root", shortLink: "root", checklists: [
-    { id: "tasks", pos: 10, checkItems: [{ idCard: "task-a" }] },
-    { id: "deps", pos: 20, checkItems: [{ idCard: "task-b" }] }
-  ] };
-  const cards = [root, { id: "task-a", shortLink: "a", checklists: [] }, { id: "task-b", shortLink: "b", checklists: [] }];
-  const data = new Map([
-    [root.id, { lim: 120, e: [] }],
-    ["task-a", { e: [["a", 20261020, 30, 0]] }],
-    ["task-b", { e: [["b", 20261020, 90, 0]] }]
-  ]);
-  let render, latest, capabilities, remote = false;
+test("reports and badges share owned links and ignore checklist selection", async () => {
+  const root = { id: "report-links-root", name: "Epic" };
+  const cards = [root, { id: "a", name: "A" }, { id: "b", name: "B" }];
+  const data = new Map([[root.id, { lc: ["a"], lim: 120, e: [] }], ["a", { e: [["a", 20261020, 30, 0]] }], ["b", { e: [["b", 20261020, 90, 0]] }]]);
+  let render, latest, capabilities;
   const client = {
-    getContext: () => ({ board: "selection-board", card: root.id }),
-    render: callback => { render = callback; }, lists: async () => [], board: async () => ({ id: "selection-board" }),
-    card: async () => root,
-    cards: async () => cards.map(card => remote ? { ...card, checklists: card.checklists.map(list => ({ id: list.id, pos: list.pos })) } : card),
-    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "test" }),
+    getContext: () => ({ board: "links-board", card: root.id }), render: callback => { render = callback; },
+    lists: async () => [], card: async () => root, cards: async () => cards,
     get: async (id, visibility, key) => id === "board" ? null : key === "time" ? data.get(id) : { time: data.get(id === "card" ? root.id : id) }
   };
   const window = {
-    parent: {}, location: { href: "https://example.com/index.html" }, TIMETRACK_CONFIG: { appKey: "key" },
+    parent: {}, location: { href: "https://example.com/index.html" },
     TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
     TimeAggregate: require("../js/aggregate"), TimeBadges: require("../js/badges"), TimeTheme: { bind() {} },
-    TimeDom: { clear() {} }, TimeReportView: { mount: () => ({
-      filters: () => ({ from: "2026-10-01", to: "2026-10-31" }), update: value => { latest = value; }
-    }) },
+    TimeDom: { clear() {} }, TimeReportView: { mount: () => ({ filters: () => ({ from: "2026-10-01", to: "2026-10-31" }), update: value => { latest = value; } }) },
     TrelloPowerUp: { iframe: () => client, initialize: value => { capabilities = value; } }
   };
-  t.mock.method(globalThis, "fetch", async () => ({ ok: true, json: async () => cards }));
   runPage("report-page.js", window, { document: { getElementById: () => ({}) } });
   runPage("connector.js", window);
   await render();
   assert.equal(latest.epics[0].remainingMinutes, 90);
   assert.equal((await capabilities["card-badges"](client))[0].text, "1h 30m left");
-  data.get(root.id).sc = "deps";
+  data.get(root.id).lc = ["b"];
+  data.get(root.id).sc = "ignored";
   await render();
   assert.equal(latest.epics[0].remainingMinutes, 30);
   assert.equal((await capabilities["card-badges"](client))[0].text, "30m left");
-  remote = true;
-  await render();
-  assert.equal(latest.epics[0].remainingMinutes, 30);
-  remote = false;
-  delete data.get(root.id).sc;
-  root.checklists[0].checkItems.push({ idCard: "nested" });
-  cards.push({ id: "nested", checklists: [] });
-  data.set("nested", { sc: "deleted-checklist", e: [["own", 20261020, 75, 0]] });
-  await render();
-  assert.equal(latest.epics[0].known, false, "a missing nested checklist must not use its own log as a leaf");
-  assert.equal(latest.epics[0].remainingMinutes, null);
-  assert.equal((await capabilities["card-badges"](client))[0].text, "limit 2h");
 });
 
 test("ordinary cards load without scanning the board or looking up REST access", async () => {
@@ -207,7 +174,7 @@ test("the time log is usable while epic metadata is pending; failure keeps the l
     card: async () => ({ id: "epic", checklists: [{ id: "list" }] }),
     cards: () => pendingCards
   });
-  h.shared({ time: { lim: 120, e: [["entry", 20261020, 30, 0]], who: [["me", "Me"]] } });
+  h.shared({ time: { lc: ["task"], lim: 120, e: [["entry", 20261020, 30, 0]], who: [["me", "Me"]] } });
   const loading = h.render();
   await tick();
   assert.equal(h.latest().entries[0].minutes, 30);
@@ -291,7 +258,7 @@ test("full shared storage rejects a save without a write", async () => {
 test("saving through the card controller updates persisted parent totals and reopening uses the cache", async () => {
   const root = { id: "ui-cached-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "ui-cached-task" }] }] };
   const task = { id: "ui-cached-task", name: "Task", checklists: [] };
-  const data = new Map([[root.id, { time: { lim: 240, e: [] } }], [task.id, {}]]);
+  const data = new Map([[root.id, { time: { lc: [task.id], lim: 240, e: [] } }], [task.id, {}]]);
   let current = task, scans = 0;
   const h = cardHarness({
     getContext: () => ({ board: "ui-cache-board", permissions: { board: "write" } }),
@@ -344,7 +311,7 @@ test("reopening an epic advances the forecast from today even when totals come f
   const root = { id: "stable-date-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "stable-date-task" }] }] };
   const task = { id: "stable-date-task", name: "Task", checklists: [] };
   const data = new Map([
-    [root.id, { time: { lim: 9600, e: [] } }],
+    [root.id, { time: { lc: [task.id], lim: 9600, e: [] } }],
     [task.id, { time: { e: [["first", 20261019, 1200, 0], ["last", 20261020, 1200, 0]] } }]
   ]);
   let scans = 0;
@@ -456,10 +423,10 @@ test("report recovers from an initial failure and does not read inaccessible chi
   assert.equal(reads.includes("gone"), false);
 });
 
-test("epic refresh loads REST checklists and child logs after read access is granted", async t => {
+test("epic refresh recovers unreadable child logs through REST after read access is granted", async t => {
   let authorized = false;
   let unreadable = false;
-  const own = { lim: 240, who: [["me", "Me"]], e: [["own", 20261020, 180, 0]] };
+  const own = { lc: ["child1", "child2"], lim: 240, who: [["me", "Me"]], e: [["own", 20261020, 180, 0]] };
   const children = [
     { id: "child1", name: "First", shortLink: "first", url: "https://trello.com/c/first" },
     { id: "child2", name: "Second", shortLink: "second", url: "https://trello.com/c/second" }
@@ -489,14 +456,13 @@ test("epic refresh loads REST checklists and child logs after read access is gra
     }
   });
   await h.render();
-  assert.equal(h.latest().needsChecklistAuth, true);
+  assert.equal(h.latest().needsChecklistAuth, false);
   assert.equal(h.latest().kidsKnown, false);
   authorized = true;
   await h.render();
   const loaded = h.latest();
   assert.equal(loaded.authorized, true);
   assert.equal(loaded.kidsKnown, true);
-  assert.equal(loaded.remoteChecklistsFetched, true);
   assert.deepEqual(loaded.children.map(child => child.minutes), [30, 90]);
   const spent = loaded.children.reduce((sum, child) => sum + child.minutes, 0);
   assert.equal(spent, 120, "own epic time and duplicate links must not count");
@@ -528,7 +494,7 @@ test("authorization capabilities return Trello's contract and open an embedded s
   assert.equal(popup.url, "./settings.html");
 });
 
-test("report requests access for hidden checklist items and computes remaining after authorization", async t => {
+test("report uses owned links without checklist authorization and marks unreadable logs", async t => {
   let render;
   let latest;
   let notice;
@@ -545,7 +511,7 @@ test("report requests access for hidden checklist items and computes remaining a
     getRestApi: () => ({ isAuthorized: () => authorized, getToken: () => authorized ? "token" : null }),
     get: async scope => {
       if (scope === "board") return null;
-      if (scope === "epic") return { lim: 240, e: [] };
+      if (scope === "epic") return { lc: ["child"], lim: 240, e: [] };
       if (failed) throw new Error("offline");
       return { who: [["me", "Me"]], e: [["log", 20261020, 90, 0]] };
     }
@@ -569,7 +535,7 @@ test("report requests access for hidden checklist items and computes remaining a
   };
   runPage("report-page.js", window, { document: { getElementById: id => id === "app" ? {} : banner } });
   await render();
-  assert.equal(banner.hidden, false);
+  assert.equal(banner.hidden, true);
   authorized = true;
   await render();
   assert.equal(banner.hidden, true);
@@ -587,8 +553,8 @@ test("epic card and badges subtract task time nested under a sub-epic", async ()
     { id: "task", name: "Task", checklists: [] }
   ];
   const logs = {
-    epic: { lim: 600, e: [] },
-    sub: { lim: 300, e: [["own", 20261020, 999, 0]] },
+    epic: { lc: ["sub"], lim: 600, e: [] },
+    sub: { lc: ["task"], lim: 300, e: [["own", 20261020, 999, 0]] },
     task: { e: [["work", 20261020, 90, 0]] }
   };
   const client = {
@@ -614,7 +580,7 @@ test("epic card and badges subtract task time nested under a sub-epic", async ()
   assert.equal((await capabilities["card-badges"](client))[0].text, "1d 30m left");
 });
 
-test("epic badges use remote links and suppress remaining when child logs are unreadable", async t => {
+test("epic badges use owned links and suppress remaining when child logs are unreadable", async t => {
   let capabilities;
   let failed = false;
   t.mock.method(globalThis, "fetch", async url => {
@@ -637,7 +603,7 @@ test("epic badges use remote links and suppress remaining when child logs are un
     cards: async () => [{ id: "child", name: "Task", shortLink: "task" }],
     get: async scope => {
       if (scope === "board") return null;
-      if (scope === "card") return { lim: 240, e: [] };
+      if (scope === "card") return { lc: ["child"], lim: 240, e: [] };
       if (failed) throw new Error("offline");
       return { who: [["me", "Me"]], e: [["log", 20261020, 90, 0]] };
     }
@@ -647,7 +613,7 @@ test("epic badges use remote links and suppress remaining when child logs are un
   assert.equal((await capabilities["card-badges"](client))[0].text, "limit 4h");
 });
 
-test("simultaneous epic badge and detail callbacks share checklist and child reads", async () => {
+test("simultaneous epic badge and detail callbacks share metadata and child reads", async () => {
   let capabilities;
   let reads = 0;
   let cardCalls = 0;
@@ -675,7 +641,7 @@ test("simultaneous epic badge and detail callbacks share checklist and child rea
       reads++;
       await tick();
       if (scope === "board") return null;
-      if (scope === "card") return { lim: 120, e: [] };
+      if (scope === "card") return { lc: ["child0"], lim: 120, e: [] };
       assert.equal(scope, "child0");
       return { e: [["log", 20261020, 30, 0]] };
     }
@@ -707,7 +673,7 @@ test("an epic cannot reuse an unvalidated raw result from its child's badge", as
   };
   const parent = {
     getContext: () => ({ board: "board", card: "epic" }),
-    get: async scope => scope === "board" ? null : scope === "card" ? { e: [], lim: 120 } : "invalid JSON",
+    get: async scope => scope === "board" ? null : scope === "card" ? { lc: ["child"], e: [], lim: 120 } : "invalid JSON",
     card: async () => ({ id: "epic", checklists: [{ checkItems: [{ name: "https://trello.com/c/task" }] }] }),
     cards: async () => [{ id: "child", shortLink: "task" }]
   };

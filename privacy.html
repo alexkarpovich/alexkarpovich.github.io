@@ -24,16 +24,17 @@
     <p>
       This Power-Up helps teams log time on Trello cards. We do <strong>not</strong> run an application server or database.
       Time entries and board settings are stored in <strong>Trello</strong> (shared Power-Up data on cards and boards).
-      Optional read access for epic checklists uses Trello’s official authorization; tokens are stored by the Trello Power-Up SDK in your Trello account, not on our servers.
+      Optional read access for time logs uses Trello’s official authorization; tokens are stored by the Trello Power-Up SDK in your Trello account, not on our servers.
     </p>
 
     <h2>What we process</h2>
     <ul>
       <li><strong>Time entries</strong> — date, duration, optional comment, Trello member ID and display name of the author.</li>
       <li><strong>Board settings</strong> — work-day length, work-week length, week start (shared on the board).</li>
+      <li><strong>Child cards</strong> - card IDs saved in the Power-Up epic list, shared with board members.</li>
       <li><strong>Epic limits</strong> — time budget stored on a card when you set a limit.</li>
-      <li><strong>Epic summaries</strong> — calculated durations, totals by date, linked card IDs, names and URLs are cached in shared card data to speed up loading.</li>
-      <li><strong>Authorization (optional)</strong> — if you click “Allow read access”, Trello issues a read-only API token held by Trello for this Power-Up on your account (used only to load checklist items for epic remaining time).</li>
+      <li><strong>Epic summaries</strong> — calculated durations, totals by date, child card IDs, names and URLs are cached in shared card data to speed up loading.</li>
+      <li><strong>Authorization (optional)</strong> — if you click “Allow read access”, Trello issues a read-only API token held by Trello for this Power-Up on your account (used only to recover time logs unavailable through the Power-Up SDK).</li>
     </ul>
     <p>
       Anyone who can view a board can read shared Power-Up data on that board, including on public boards.

@@ -104,3 +104,13 @@ test("new entry IDs are unique and survive a round trip", function () {
   assert.equal(new Set(state.entries.map(e => e.id)).size, 20);
   assert.deepEqual(model.decode(model.pack(state)).entries.map(e => e.id), state.entries.map(e => e.id));
 });
+
+test("owned links survive alone, deduplicate on decode and count toward storage", () => {
+  const state = model.emptyState();
+  state.linkedIds = ["task-a", "task-b"];
+  assert.equal(model.isEmpty(state), false);
+  assert.deepEqual(model.decode(model.pack(state)).linkedIds, state.linkedIds);
+  assert.deepEqual(model.decode({ e: [], lc: ["task-a", "task-a", null, "", "task-b"] }).linkedIds, state.linkedIds);
+  assert.throws(() => model.fitState({ ...state, linkedIds: ["a".repeat(4000)] }), { code: "STORAGE_FULL" });
+  assert.deepEqual(model.decode({ e: [], kids: ["stale"], sc: "old-checklist" }).linkedIds, []);
+});

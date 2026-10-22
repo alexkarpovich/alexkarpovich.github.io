@@ -49,13 +49,13 @@
       kidsKnown: false
     };
     if (state.limitMinutes == null) return summary;
-    const full = await t.card("id", "checklists");
+    const full = await t.card("id");
     const related = await window.TimeRollupCache.loadCardChildren(t, full, appKey(), {
       shared: raw,
       persist: false,
       authStatus: false,
       cards: function () {
-        return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink", "checklists"); });
+        return read(ctx.board + ":cards", function () { return t.cards("id", "name", "url", "shortLink"); });
       },
       // Child reads include validation and fallbacks; do not share their result
       // with the raw read used by that child's own badge callback.

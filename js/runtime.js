@@ -253,22 +253,23 @@
     return { boardCards: boardCards, timeById: timeById, unreadableIds: unreadableIds };
   }
 
-  // Read metadata once, then read logs only for visible checklist children.
-  // No board scan, token lookup, or REST request for a card without checklists.
+  // Read metadata once, then logs only for visible linked descendants.
+  // Cards without links skip board metadata and authorization lookups.
   async function loadCardChildren(client, card, appKey, modelApi, epicApi, options) {
     const opts = options || {};
     const getRest = opts.getRest || lazyCredentials(client, appKey);
-    const empty = !card.subtasksChecklistId && card.subtasksChecklistId !== false && Array.isArray(card.checklists) && card.checklists.length === 0;
+    const owned = Array.isArray(card.linkedIds);
+    const empty = owned ? !card.linkedIds.length : !card.subtasksChecklistId && card.subtasksChecklistId !== false && Array.isArray(card.checklists) && card.checklists.length === 0;
     const boardCards = empty ? [] : await (opts.cards
       ? opts.cards()
-      : client.cards("id", "name", "url", "shortLink", "checklists"));
+      : owned ? client.cards("id", "name", "url", "shortLink") : client.cards("id", "name", "url", "shortLink", "checklists"));
     const shortLinks = new Map(boardCards.map(function (item) { return [item.shortLink, item.id]; }));
     const nameIndex = epicApi.uniqueNameIndex(boardCards);
     function knownInspection(info) {
       const cached = opts.inspections && opts.inspections.get(info.id);
       return cached && (cached.subtasksChecklistId ?? null) === (info.subtasksChecklistId ?? null) ? cached : null;
     }
-    const inspection = knownInspection(card) || (empty
+    const inspection = owned ? { complete: true, childIds: card.linkedIds.slice(), unlinkedCount: 0 } : knownInspection(card) || (empty
       ? { complete: true, childIds: [], checklists: [], unlinkedCount: 0 }
       : await resolveChecklistInspection(client, card.id, card, true, appKey, epicApi, {
         boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
@@ -291,10 +292,12 @@
       const nested = await mapPool(layer, 4, async function (id) {
         const state = modelApi.decode(timeById.get(id));
         const info = Object.assign({}, byId.get(id), {
+          linkedIds: owned ? state.linkedIds : undefined,
           subtasksChecklistId: timeById.get(id) === undefined ? false : state.subtasksChecklistId
         });
-        if (state.limitMinutes == null && !state.subtasksChecklistId && !(info.checklists && info.checklists.length)) return [];
-        const childInspection = knownInspection(info) || await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
+        if (owned && !state.linkedIds.length && state.limitMinutes == null) return [];
+        if (!owned && state.limitMinutes == null && !state.subtasksChecklistId && !(info.checklists && info.checklists.length)) return [];
+        const childInspection = owned ? { complete: timeById.get(id) !== undefined, childIds: state.linkedIds.slice(), unlinkedCount: 0 } : knownInspection(info) || await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
           boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
         });
         inspections.set(id, childInspection);

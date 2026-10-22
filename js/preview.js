@@ -27,10 +27,6 @@
       labels: [{ id: "release", name: "Release", color: "purple" }],
       entries: [],
       limitMinutes: 4800,
-      checklists: [
-        { id: "subtasks", name: "Sub-tasks", pos: 1, checkItems: [{ idCard: "design" }, { idCard: "api" }] },
-        { id: "dependencies", name: "Depends on", pos: 2, checkItems: [{ idCard: "bug" }] }
-      ],
       kids: ["design", "api"]
     },
     {
@@ -130,10 +126,18 @@
       paintReport();
       return Promise.resolve();
     },
-    onChecklist: function (id) {
+    onLinkAdd: function (url) {
       const card = selected();
-      card.subtasksChecklistId = id || null;
-      card.kids = window.TimeEpic.inspectChecklists(card.checklists, card.id, null, null, card.subtasksChecklistId).childIds;
+      const child = cards.find(function (item) { return item.url === url; });
+      if (!child || child.id === card.id) return Promise.reject(new Error("Use another card URL from this preview."));
+      if ((card.kids || []).includes(child.id)) return Promise.reject(new Error("This card is already linked."));
+      card.kids = (card.kids || []).concat(child.id);
+      paintCard();
+      paintReport();
+      return Promise.resolve();
+    },
+    onLinkRemove: function (id) {
+      selected().kids = (selected().kids || []).filter(function (childId) { return childId !== id; });
       paintCard();
       paintReport();
       return Promise.resolve();
@@ -185,10 +189,7 @@
       entries: window.TimeModel.sortEntries(card.entries),
       limitMinutes: card.limitMinutes,
       kidsKnown: true,
-      checklists: card.checklists || [],
-      hasChecklists: !!(card.checklists && card.checklists.length),
-      subtasksChecklistId: card.subtasksChecklistId || null,
-      unlinkedCount: card.id === "epic" ? 1 : 0,
+      linkedIds: kids,
       warning: "",
       error: "",
       limitError: "",
@@ -196,7 +197,7 @@
       storageRatio: window.TimeModel.storageRatio({
         entries: card.entries,
         limitMinutes: card.limitMinutes,
-        kids: card.kids
+        linkedIds: kids
       }),
       children: kids.map(function (id) {
         const child = cards.find(function (item) { return item.id === id; });
@@ -242,7 +243,7 @@
     return false;
   }
 
-  function runSelfTest() {
+  async function runSelfTest() {
     const failures = [];
     function expect(condition, message) {
       if (!condition) failures.push(message);
@@ -272,6 +273,23 @@
     expect(textOf("card-app").indexOf("45m") !== -1, "logged 45m on epic");
     expect(textOf("card-app").indexOf("1w 3d 20m left") !== -1, "epic own time ignored");
     expect(textOf("report-app").indexOf("2d 55m") !== -1, "report includes epic log");
+
+    expect(document.querySelector('#card-app label[for="epic-limit"]').textContent === "Limit", "visible limit label");
+    expect(document.querySelector('#card-app .epic-heading').textContent.indexOf("Epic summary") !== -1, "epic summary heading");
+    const settle = async function () { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+    document.querySelector('#card-app button[aria-label="Remove child card"]').click();
+    await settle();
+    expect(document.querySelectorAll("#card-app .child").length === 1, "remove child card");
+    document.querySelector('#card-app input[name="card-link"]').value = "https://trello.com/c/design";
+    document.querySelector("#card-app .link-form").requestSubmit();
+    await settle();
+    expect(document.querySelectorAll("#card-app .child").length === 2, "add child card");
+    document.querySelector('#card-app button[aria-label="Edit epic limit"]').click();
+    document.querySelector('#card-app .limit-form .button-link').click();
+    await settle();
+    expect(document.querySelectorAll("#card-app .child").length === 2, "child cards visible without a limit");
+    expect(document.querySelector("#card-app .child strong").textContent !== "Unavailable", "time visible without limit");
+    expect(document.documentElement.scrollWidth <= innerWidth, "no horizontal overflow");
 
     const result = document.getElementById("selftest-result");
     if (failures.length) {

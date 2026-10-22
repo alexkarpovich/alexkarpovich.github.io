@@ -8,13 +8,13 @@ let sequence = 0;
 function fixture() {
   const prefix = "cache" + (++sequence) + "-";
   const id = name => prefix + name;
-  const checklist = children => [{ checkItems: children.map(name => ({ idCard: id(name) })) }];
+  const links = children => children.map(id);
   const cards = [
-    { id: id("root"), name: "Epic", checklists: checklist(["a", "b"]) },
-    { id: id("a"), name: "Sub A", checklists: checklist(["task", "other"]) },
-    { id: id("b"), name: "Sub B", checklists: checklist(["task"]) },
-    { id: id("task"), name: "Shared task", checklists: [] },
-    { id: id("other"), name: "Other task", checklists: [] }
+    { id: id("root"), name: "Epic", linkedIds: links(["a", "b"]) },
+    { id: id("a"), name: "Sub A", linkedIds: links(["task", "other"]) },
+    { id: id("b"), name: "Sub B", linkedIds: links(["task"]) },
+    { id: id("task"), name: "Shared task", linkedIds: [] },
+    { id: id("other"), name: "Other task", linkedIds: [] }
   ];
   cards.forEach(card => { card.shortLink = card.id.replace(/-/g, ""); card.url = "https://trello.com/c/" + card.shortLink; });
   const log = minutes => ({ who: [["me", "Me"]], e: [["entry", 20261020, minutes, 0]] });
@@ -24,6 +24,7 @@ function fixture() {
     [id("b"), { time: { ...log(999), lim: 300 } }],
     [id("task"), { time: log(60) }], [id("other"), { time: log(30) }]
   ]);
+  cards.forEach(card => { if (card.linkedIds.length) data.get(card.id).time.lc = card.linkedIds.slice(); });
   const reads = [], writes = [];
   let scans = 0, writable = true, rejectWrites = false, failRead = "";
   const client = {
@@ -101,10 +102,11 @@ test("adding, editing and deleting task time updates all ancestors without openi
   }
 });
 
-test("checklist changes rebuild the parent and remove stale reverse links", async () => {
+test("link changes rebuild the parent and remove stale reverse links", async () => {
   const h = fixture();
   await h.load();
-  h.card("a").checklists[0].checkItems = [];
+  h.card("a").linkedIds = [];
+  h.data.get(h.id("a")).time.lc = [];
   const rebuilt = await h.load("a");
   assert.equal(rebuilt.inspection.childIds.length, 0);
   assert.equal(h.total("root"), 60, "only Sub B still contributes the shared task");
@@ -197,10 +199,10 @@ test("the first task save discovers and populates every parent even before an ep
   assert.equal(h.total("b"), 75);
 });
 
-test("reverse indexes invalidate all ancestors when checklist metadata is unavailable", async () => {
+test("reverse indexes invalidate all ancestors when relationship data is unavailable", async () => {
   const h = fixture();
   await h.load();
-  h.cards.forEach(card => { if (card.checklists.length) card.checklists = undefined; });
+  h.failRead("a");
   const tx = await cache.prepareChange(h.client, h.card("task"), "", h.data.get(h.id("task")));
   assert.deepEqual([...tx.affected].sort(), [h.id("a"), h.id("b"), h.id("root")].sort());
   assert.equal(h.data.get(h.id("root")).rollup.dirty, tx.token);
@@ -230,8 +232,9 @@ test("denied cache writes retain source data and still return the live total", a
 
 test("ancestor discovery keeps the opened card's short link from board metadata", async () => {
   const h = fixture();
-  h.card("root").checklists = [{ checkItems: [{ name: h.card("a").url }] }];
-  const minimal = { id: h.id("a"), name: "Sub A", checklists: h.card("a").checklists };
+  h.card("root").linkedIds = [h.id("a")];
+  h.data.get(h.id("root")).time.lc = [h.id("a")];
+  const minimal = { id: h.id("a"), name: "Sub A", linkedIds: h.card("a").linkedIds };
   await cache.loadCardChildren(h.client, minimal, "", { shared: h.data.get(h.id("a")) });
   assert.equal(h.total("root"), 90);
   assert.deepEqual(h.data.get(h.id("a")).rollupLinks.p, [h.id("root")]);
@@ -275,69 +278,40 @@ test("a failed source write leaves ancestors dirty and the next open restores th
 
 test("cyclic dependencies never become a valid persisted total", async () => {
   const h = fixture();
-  h.card("a").checklists[0].checkItems.push({ idCard: h.id("root") });
+  h.card("a").linkedIds.push(h.id("root"));
+  h.data.get(h.id("a")).time.lc = h.card("a").linkedIds.slice();
   const related = await h.load();
   assert.equal(related.board.totalsById.get(h.id("a")).missing, true);
   assert.equal(cache.valid(h.data.get(h.id("root")).rollup, h.card("root")), false);
 });
 
-test("hidden checklist items are resolved in one board request and warm opens skip REST", async t => {
+test("native checklist changes have no effect on owned links or warm caches", async () => {
   const h = fixture();
-  h.cards.forEach(card => card.checklists.forEach((list, i) => { list.id = card.id + "-list" + i; }));
-  const remote = structuredClone(h.cards);
-  h.cards.forEach(card => card.checklists.forEach(list => { delete list.checkItems; }));
-  h.client.getRestApi = () => ({ isAuthorized: () => true, getToken: () => "test-token" });
-  let requests = 0;
-  t.mock.method(globalThis, "fetch", async url => {
-    requests++;
-    assert.match(url, /\/boards\/.*\/cards\?/);
-    return { ok: true, json: async () => remote };
-  });
-  const options = () => ({ shared: structuredClone(h.data.get(h.id("root"))) });
-  const loaded = await cache.loadCardChildren(h.client, h.card("root"), "key", options());
-  assert.equal(loaded.inspection.remoteChecklistsFetched, true);
+  await h.load();
+  h.cards.forEach(card => { card.checklists = [{ checkItems: [{ idCard: "unrelated" }] }]; });
+  assert.equal((await h.load()).cached, true);
   assert.equal(h.total("root"), 90);
-  assert.equal(requests, 1);
-  assert.equal((await cache.loadCardChildren(h.client, h.card("root"), "key", options())).cached, true);
-  assert.equal(requests, 1);
 });
 
-test("switching a nested checklist refreshes ancestors and removes old backlinks", async () => {
+test("changing nested owned links refreshes ancestors and removes old backlinks", async () => {
   const h = fixture();
-  h.card("a").checklists[0].id = "original";
-  h.card("a").checklists.push({ id: "alternate", checkItems: [{ idCard: h.id("task") }] });
   await h.load();
-  assert.equal(h.total("root"), 90);
   const tx = await cache.prepareChange(h.client, h.card("a"), "", h.data.get(h.id("a")));
-  const changed = { ...h.data.get(h.id("a")).time, sc: "alternate" };
+  const changed = { ...h.data.get(h.id("a")).time, lc: [h.id("task")] };
   h.data.get(h.id("a")).time = changed;
   await cache.finishChange(h.client, tx, "", changed);
   assert.equal(h.total("root"), 60);
   assert.equal(h.total("a"), 60);
   assert.equal(h.data.get(h.id("other")).rollupLinks, undefined);
   assert.equal((await h.load("a")).cached, true);
-  h.card("a").checklists[1].name = "Renamed";
-  h.card("a").checklists.reverse();
-  assert.equal((await h.load("a")).cached, true, "manual ID is independent of order and name");
-  h.card("a").checklists.shift();
-  const missing = await h.load("a");
-  assert.equal(missing.inspection.complete, false);
-  assert.equal(missing.inspection.missingChecklist, true);
-  assert.ok(h.data.get(h.id("root")).rollup.dirty, "an incomplete ancestor must not reuse the old total");
 });
 
-test("automatic checklist reordering invalidates totals while unrelated edits keep a warm cache", async () => {
+test("changing owned links rejects stale cache and old cache versions rebuild", async () => {
   const h = fixture();
-  h.card("root").checklists[0].id = "first";
-  h.card("root").checklists[0].pos = 10;
-  h.card("root").checklists.push({ id: "second", pos: 20, checkItems: [{ idCard: h.id("other") }] });
   await h.load();
-  assert.equal(h.total("root"), 90);
-  h.card("root").checklists[1].name = "Renamed dependency list";
-  assert.equal((await h.load()).cached, true);
-  h.card("root").checklists[1].pos = 5;
+  h.data.get(h.id("root")).time.lc = [h.id("other")];
   await h.load();
   assert.equal(h.total("root"), 30);
   h.data.get(h.id("root")).rollup.v = 1;
-  assert.equal((await h.load()).cached, undefined, "old all-checklist caches are rebuilt");
+  assert.equal((await h.load()).cached, undefined);
 });

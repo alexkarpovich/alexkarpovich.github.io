@@ -6,7 +6,7 @@
   const MAX_PLUGIN_CHARS = 4000;
 
   function emptyState() {
-    return { limitMinutes: null, subtasksChecklistId: null, kids: null, entries: [] };
+    return { linkedIds: [], limitMinutes: null, subtasksChecklistId: null, kids: null, entries: [] };
   }
 
   function normalizeCreatedAt(value) {
@@ -17,6 +17,7 @@
 
   function cloneState(state) {
     return {
+      linkedIds: (state.linkedIds || []).slice(),
       limitMinutes: state.limitMinutes,
       subtasksChecklistId: state.subtasksChecklistId || null,
       kids: state.kids ? state.kids.slice() : null,
@@ -60,6 +61,7 @@
     });
 
     const packed = { e: entries };
+    if (state.linkedIds && state.linkedIds.length) packed.lc = state.linkedIds;
     if (who.length) packed.who = who;
     if (state.limitMinutes != null) packed.lim = state.limitMinutes;
     if (state.subtasksChecklistId) packed.sc = state.subtasksChecklistId;
@@ -86,6 +88,7 @@
     const state = emptyState();
     const packed = normalizePackedRaw(raw) || (raw && typeof raw === "object" ? raw : null);
     if (!packed) return state;
+    if (Array.isArray(packed.lc)) state.linkedIds = Array.from(new Set(packed.lc.filter(function (id) { return typeof id === "string" && id; })));
     if (typeof packed.sc === "string" && packed.sc) state.subtasksChecklistId = packed.sc;
     if (Number.isFinite(Number(packed.lim)) && Number(packed.lim) > 0) state.limitMinutes = Math.round(Number(packed.lim));
     if (Array.isArray(packed.kids)) state.kids = packed.kids.filter(function (id) { return typeof id === "string" && id; });
@@ -164,7 +167,7 @@
   }
 
   function isEmpty(state) {
-    return !state.entries.length && state.limitMinutes == null && !state.subtasksChecklistId;
+    return !state.entries.length && state.limitMinutes == null && !state.subtasksChecklistId && !(state.linkedIds && state.linkedIds.length);
   }
 
   function totalMinutes(entries) {

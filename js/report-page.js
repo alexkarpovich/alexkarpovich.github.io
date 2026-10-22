@@ -75,7 +75,7 @@
       return;
     }
     banner.hidden = false;
-    banner.appendChild(window.TimeDom.h("span", null, "Allow board read access to compute epic checklist remaining time."));
+    banner.appendChild(window.TimeDom.h("span", null, "Allow board read access to recover unavailable time logs."));
     const allowBtn = window.TimeDom.h("button", {
       type: "button",
       class: "button mod-primary"
@@ -96,34 +96,16 @@
 
   async function loadBoard() {
     const [cardList, lists] = await Promise.all([
-      t.cards("id", "name", "url", "labels", "idList", "shortLink", "checklists"),
+      t.cards("id", "name", "url", "labels", "idList", "shortLink"),
       t.lists("id", "name")
     ]);
     const listNames = new Map((lists || []).map(function (list) { return [list.id, list.name]; }));
-    const shortLinks = new Map((cardList || []).map(function (card) { return [card.shortLink, card.id]; }));
-    const nameIndex = window.TimeEpic.uniqueNameIndex(cardList);
     const boardTimes = await window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel, cardList);
     const states = cardList.map(function (card) {
       return window.TimeModel.decode(boardTimes.timeById.get(card.id));
     });
-    function inspect(card, checklists, index) {
-      return window.TimeEpic.inspectChecklists(checklists, card.id, shortLinks, nameIndex,
-        boardTimes.unreadableIds.has(card.id) ? false : states[index].subtasksChecklistId);
-    }
-    const needsLists = cardList.some(function (card, index) {
-      const fromClient = inspect(card, card.checklists, index);
-      return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
-    });
-    const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
-      const fromClient = inspect(card, card.checklists, index);
-      const needsRemote = window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
-      let kids = fromClient.complete && !needsRemote ? fromClient.childIds : null;
-      if (remote.map && remote.map.has(card.id)) {
-        const parsed = inspect(card, remote.map.get(card.id), index);
-        kids = parsed.complete ? parsed.childIds : null;
-      }
       return {
         id: card.id,
         name: card.name,
@@ -134,41 +116,15 @@
         }),
         entries: state.entries,
         limitMinutes: state.limitMinutes,
-        hasSubtasks: !!state.subtasksChecklistId || !!((remote.map && remote.map.get(card.id) || card.checklists || []).length),
-        kids: kids,
+        hasSubtasks: state.linkedIds.length > 0,
+        kids: boardTimes.unreadableIds.has(card.id) ? null : state.linkedIds,
         missing: boardTimes.unreadableIds.has(card.id)
       };
     });
 
-    const unknown = cardsOut.filter(function (card) { return (card.limitMinutes != null || card.hasSubtasks) && !Array.isArray(card.kids); });
     let message = "Report includes only visible cards in open lists; archived cards are excluded.";
-    if (boardTimes.unreadableIds.size) {
-      message += " Some time logs could not be read; totals may be incomplete. Reload the report to retry.";
-    }
-    if (unknown.length && !appKey()) {
-      message += " Checklists for some epics were not returned by Trello. Open the epic card to inspect its links.";
-    } else if (unknown.length && remote.needsAuth) {
-      message += " Checklists for some epics were not returned. Allow board read access to compute remaining time.";
-    } else if (unknown.length) {
-      message += " Could not read checklists for some epics. Open those cards to refresh links.";
-    }
-    return { cards: cardsOut, notice: message, needsAuth: !!(unknown.length && remote.needsAuth && appKey()) };
-  }
-
-  async function loadRemoteChecklists() {
-    if (!appKey()) return { map: null, needsAuth: false };
-    try {
-      const api = await window.TimeRuntime.restApi(t);
-      if (!(await window.TimeRuntime.asPromise(api.isAuthorized()))) return { map: null, needsAuth: true };
-      const token = await window.TimeRuntime.asPromise(api.getToken());
-      const board = await t.board("id");
-      const list = await window.TimeRuntime.fetchJson("https://api.trello.com/1/boards/" + board.id + "/cards?filter=visible&fields=id,shortLink&checklists=all&checkItem_fields=name,state&key=" + encodeURIComponent(appKey()) + "&token=" + encodeURIComponent(token));
-      const map = new Map();
-      list.forEach(function (card) { map.set(card.id, card.checklists); });
-      return { map: map, needsAuth: false };
-    } catch (error) {
-      return { map: null, needsAuth: false };
-    }
+    if (boardTimes.unreadableIds.size) message += " Some time logs could not be read; totals may be incomplete. Reload the report to retry.";
+    return { cards: cardsOut, notice: message, needsAuth: false };
   }
 
 })();

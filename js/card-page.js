@@ -39,22 +39,6 @@
     try { return window.localStorage.getItem("timetrackDebug") === "1"; } catch (error) { return false; }
   }
 
-  function checklistDebugItems(checklists, selfId, shortLinks, nameIndex) {
-    const rows = [];
-    (checklists || []).forEach(function (list) {
-      (list.checkItems || []).forEach(function (item) {
-        const resolved = window.TimeEpic.resolveCheckItemChildId(item, selfId, shortLinks, nameIndex);
-        rows.push({
-          name: item && item.name,
-          idCard: item && item.idCard,
-          childId: resolved.id || null,
-          unresolved: resolved.unresolved
-        });
-      });
-    });
-    return rows;
-  }
-
   function permissions() {
     const ctx = t.getContext();
     return (ctx && ctx.permissions) || {};
@@ -73,7 +57,8 @@
       onUpdate: onUpdate,
       onDelete: onDelete,
       onLimit: onLimit,
-      onChecklist: onChecklist,
+      onLinkAdd: onLinkAdd,
+      onLinkRemove: onLinkRemove,
       onAuthorize: onAuthorize
     });
     if (window.ResizeObserver) {
@@ -199,13 +184,32 @@
     });
   }
 
-  function onChecklist(id) {
+  function onLinkAdd(rawLink) {
     return withSaving(async function () {
-      if (id && !(current.checklists || []).some(function (list) { return list.id === id; })) {
-        throw new Error("This checklist is no longer available. Reopen the card to retry.");
-      }
+      const match = String(rawLink || "").trim().match(/^https?:\/\/trello\.com\/c\/([A-Za-z0-9]+)(?:[/?#].*)?$/i);
+      if (!match) throw new Error("Paste a Trello card URL (https://trello.com/c/…).");
+      const cards = await t.cards("id", "name", "url", "shortLink");
+      const child = cards.find(function (item) { return item.shortLink === match[1] || window.TimeEpic.shortLinksInText(item.url).includes(match[1]); });
+      if (!child) throw new Error("Card not found. Use a visible card on this board in an open list.");
+      if (child.id === current.cardId) throw new Error("A card cannot link to itself.");
+      // Validate the descendant graph before persisting a new relationship.
+      const related = await window.TimeRuntime.loadCardChildren(t, Object.assign({}, child, {
+        linkedIds: window.TimeModel.decode(await t.get(child.id, "shared", "time", null)).linkedIds
+      }), appKey(), window.TimeModel, window.TimeEpic);
+      if (related.board.timeById.has(current.cardId) || Array.from(related.inspections.values()).some(function (item) { return (item.childIds || []).includes(current.cardId); })) throw new Error("This link would create a circular epic.");
+      if (Array.from(related.board.totalsById.values()).some(function (item) { return item.missing; })) throw new Error("Some descendant cards are unavailable. Restore access before adding this link.");
       return mutate(function (state) {
-        state.subtasksChecklistId = id || null;
+        if (state.linkedIds.includes(child.id)) throw new Error("This card is already linked.");
+        state.linkedIds.push(child.id);
+        return state;
+      });
+    });
+  }
+
+  function onLinkRemove(id) {
+    return withSaving(function () {
+      return mutate(function (state) {
+        state.linkedIds = state.linkedIds.filter(function (childId) { return childId !== id; });
         return state;
       });
     });
@@ -216,8 +220,9 @@
     const shared = await t.get(card.id, "shared");
     const state = window.TimeModel.decode(shared && shared.time);
     const next = change(state);
-    // Relationships come from checklists, not a stale duplicate in pluginData.
+    // Retire legacy checklist settings; owned links are source data.
     next.kids = null;
+    next.subtasksChecklistId = null;
     const primary = Object.assign({}, shared);
     delete primary.rollup;
     delete primary.rollupLinks;
@@ -225,7 +230,7 @@
     let transaction;
     rollupNotice = "";
     try {
-      const full = await t.card("id", "name", "url", "shortLink", "checklists");
+      const full = await t.card("id", "name", "url", "shortLink");
       transaction = await window.TimeRollupCache.prepareChange(t, full, appKey(), shared);
     } catch (error) {
       rollupNotice = "Parent totals could not be refreshed. Reopen the epic to recalculate.";
@@ -238,6 +243,7 @@
     const fresh = JSON.stringify(latestShared.time) === JSON.stringify(shared && shared.time)
       ? next : change(window.TimeModel.decode(latestShared.time));
     fresh.kids = null;
+    fresh.subtasksChecklistId = null;
     fit = window.TimeModel.isEmpty(fresh) ? null : window.TimeModel.fitState(fresh, latestPrimary);
     if (fit && JSON.stringify(Object.assign({}, latestShared, { time: fit.packed })).length > window.TimeModel.MAX_PLUGIN_CHARS) {
       if (latestShared.rollup) await t.remove(card.id, "shared", "rollup");
@@ -258,9 +264,9 @@
       return refresh();
     }).then(function () {
       if (current && current.authorized && current.children.length) {
-        t.alert({ message: "Read access granted. Child cards loaded from the checklist.", duration: 4, display: "success" });
+        t.alert({ message: "Read access granted. Child cards loaded.", duration: 4, display: "success" });
       } else if (current && current.authorized) {
-        t.alert({ message: "Read access granted. Reopen the card if checklist links still do not appear.", duration: 5, display: "info" });
+        t.alert({ message: "Read access granted. Reopen the card to refresh child cards.", duration: 5, display: "info" });
       }
     });
   }
@@ -268,7 +274,7 @@
   async function loadModel(client) {
     const [rawSettings, card, member, raw] = await Promise.all([
       client.get("board", "shared", "settings", null),
-      client.card("id", "name", "checklists"),
+      client.card("id", "name"),
       client.member("id", "fullName", "username").catch(function () { return null; }),
       client.get("card", "shared")
     ]);
@@ -283,16 +289,12 @@
       canWrite: write,
       canAdd: write && !!currentMember,
       entries: state.entries,
+      linkedIds: state.linkedIds,
       limitMinutes: state.limitMinutes,
       kidsKnown: false,
       needsChecklistAuth: false,
       authorized: false,
-      children: [],
-      unlinkedCount: 0,
-      hasChecklists: !!(card.checklists && card.checklists.length),
-      checklists: window.TimeEpic.orderedChecklists(card.checklists),
-      subtasksChecklistId: state.subtasksChecklistId,
-      missingChecklist: !!state.subtasksChecklistId && Array.isArray(card.checklists) && !card.checklists.some(function (list) { return list.id === state.subtasksChecklistId; }),
+      children: state.linkedIds.map(function (id) { return { id: id, name: "Unavailable card", url: "", minutes: 0, missing: true }; }),
       buildLabel: buildLabel(),
       warning: rollupNotice,
       error: "",
@@ -300,7 +302,7 @@
       saving: saving,
       storageRatio: window.TimeModel.storageRatio(state)
     };
-    if (!state.subtasksChecklistId && Array.isArray(card.checklists) && card.checklists.length === 0 && !(raw && raw.rollup)) return base;
+    if (!state.linkedIds.length) return base;
 
     // The time form and its entries are usable while optional epic data loads.
     current = Object.assign({}, base, { childrenLoading: true });
@@ -314,7 +316,7 @@
         warning: "Time log loaded, but child cards could not be refreshed. Reopen the card to retry."
       });
     }
-    const { board, inspection, shortLinks, nameIndex } = related;
+    const { board, inspection } = related;
     // Opening a card may repair derived summaries; source logs are kept separately.
 
     const kids = (inspection.childIds || []).slice();
@@ -339,16 +341,13 @@
     const debugEpic = debugEnabled() ? {
       build: buildLabel(),
       epicId: card.id,
+      linkedIds: state.linkedIds,
       limitMinutes: state.limitMinutes,
       childIds: kids.slice(),
       spentMinutes: spent,
       remainingMinutes: state.limitMinutes != null ? state.limitMinutes - spent : null,
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
-      checklistAuthNeeded: !!inspection.checklistAuthNeeded,
       authorized: !!board.rest,
-      remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
-      checklistCount: (inspection.checklists || []).length,
-      checklistItems: checklistDebugItems(inspection.checklists, card.id, shortLinks, nameIndex),
       children: children.map(function (child) {
         return { id: child.id, name: child.name, minutes: child.minutes, missing: child.missing };
       })
@@ -358,13 +357,8 @@
       kidsKnown: kids.length > 0 && inspection.complete && !children.some(function (child) { return child.missing; }),
       needsChecklistAuth: !!inspection.checklistAuthNeeded,
       authorized: !!board.rest,
-      remoteChecklistsFetched: !!inspection.remoteChecklistsFetched,
       children: children,
       estimatedFinish: estimatedFinish,
-      unlinkedCount: inspection.unlinkedCount || 0,
-      checklists: window.TimeEpic.orderedChecklists(inspection.allChecklists || card.checklists),
-      missingChecklist: !!inspection.missingChecklist,
-      hasChecklists: !!(inspection.checklists && inspection.checklists.length) || !!(card.checklists && card.checklists.length),
       debugEpic: debugEpic,
       saving: saving
     });

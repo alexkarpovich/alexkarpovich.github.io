@@ -226,11 +226,13 @@ button:disabled,
 
 .control-row + .control-row { margin-top: var(--control-gap); }
 .control-row > button { flex-shrink: 0; }
-.checklist-control { margin: 6px 0; }
-.checklist-label { display: block; margin-bottom: 2px; font-size: 12px; }
-.checklist-control select { flex: 1; min-width: 0; width: 0; }
-.checklist-summary strong { min-width: 0; overflow-wrap: anywhere; }
-.checklist-summary .entry-action { flex-shrink: 0; }
+.link-form { margin-top: 12px; }
+.link-form label, .limit-form label { display: block; margin-bottom: 4px; font-size: 12px; }
+.link-form input { flex: 1; min-width: 0; }
+.child-name { min-width: 0; overflow-wrap: anywhere; }
+.child-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.child { gap: 12px; }
+
 .edit-form .field-time { flex: 1 1 76px; width: 76px; }
 
 .log-form-inline .field-time {

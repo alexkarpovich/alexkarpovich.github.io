@@ -59,7 +59,7 @@
     ]),
     h("p", { class: "hint" }, "1d and 1w in entries and reports use these values. Already saved minutes are not rewritten."),
     h("p", { class: "hint" }, window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey
-      ? "API key is set: epic checklists can be read directly."
+      ? "API key is set: read access can recover time logs when SDK reads are unavailable."
       : "Basic time tracking works without extra authorization."),
     error,
     button
@@ -106,11 +106,11 @@
       connect.hidden = ok;
       disconnect.hidden = !ok;
       authStatus.textContent = ok
-        ? "Read access is connected for this account (checklists and child cards via REST)."
-        : "Epic remaining time needs one-time read access to load checklist items Trello hides from Power-Ups.";
+        ? "Read access is connected for this account (time logs via REST)."
+        : "Optional read access can recover time logs if Trello does not return them to the Power-Up.";
     }
     authSection = h("section", { class: "settings" }, [
-      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Epic checklists (once per account)"),
+      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Optional read access"),
       h("p", { class: "hint" }, "Click Allow inside this panel (not in a new browser tab). Trello may open a small consent window — that is normal and only happens once."),
       connect,
       disconnect,

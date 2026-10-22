@@ -25,7 +25,6 @@
 
   function mountCardView(rootNode, handlers) {
     let editingLimit = false;
-    let editingChecklist = false;
     let latestModel = null;
     const duration = h("input", {
       class: "field-time",
@@ -57,6 +56,7 @@
     const editHost = h("div", { class: "edit-panel", hidden: "hidden" });
 
     const limitInput = h("input", {
+      id: "epic-limit",
       name: "limit",
       placeholder: "1w",
       autocomplete: "off",
@@ -82,49 +82,28 @@
         limitInput.focus();
         limitInput.select();
       });
-    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [limitValue, editLimit]);
+    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [h("span", { class: "muted" }, "Limit"), limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
-    const checklistSelect = h("select", { id: "subtasks-checklist", "aria-label": "Subtasks checklist" });
-    const checklistError = h("div", { class: "error", role: "alert" });
-    const checklistValue = h("strong");
-    const editChecklist = entryAction("Edit subtasks checklist",
-      '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
-      false, false, function () {
-        editingChecklist = true;
-        checklistError.textContent = "";
-        paintChecklist(latestModel);
-        checklistSelect.focus();
-      });
-    const checklistSummary = h("div", { class: "limit-summary checklist-summary" }, [checklistValue, editChecklist]);
-    function closeChecklist() {
-      editingChecklist = false;
-      checklistError.textContent = "";
-      paintChecklist(latestModel);
-      editChecklist.focus();
-    }
-    const cancelChecklist = h("button", { type: "button", class: "button-link", onclick: closeChecklist }, "Cancel");
-    const resetChecklist = h("button", { type: "button", class: "button-link", onclick: function () { saveChecklist(""); } }, "Use first checklist");
-    const checklistEditor = h("div", { hidden: true }, [
-      h("div", { class: "control-row" }, [checklistSelect, cancelChecklist]), resetChecklist
-    ]);
-    const checklistControl = h("div", { class: "checklist-control", hidden: true }, [
-      h("span", { class: "checklist-label muted" }, "Subtasks checklist"), checklistSummary, checklistEditor, checklistError
-    ]);
-    checklistSelect.addEventListener("change", function () { saveChecklist(checklistSelect.value); });
-    checklistSelect.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !latestModel.saving) { event.preventDefault(); closeChecklist(); }
+    const linkInput = h("input", {
+      id: "epic-card-link", name: "card-link", type: "url", placeholder: "https://trello.com/c/…",
+      "aria-label": "Child card link", autocomplete: "off", required: true
     });
-    function saveChecklist(selected) {
+    const linkButton = h("button", { type: "submit", class: "button" }, "Add child card");
+    const linkError = h("div", { class: "error", role: "alert" });
+    const linkForm = h("form", { class: "link-form" }, [
+      h("label", { for: "epic-card-link", class: "muted" }, "Child cards"),
+      h("div", { class: "control-row" }, [linkInput, linkButton]), linkError
+    ]);
+    linkForm.addEventListener("submit", function (event) {
+      event.preventDefault();
       const savingCard = latestModel.cardId;
-      checklistError.textContent = "";
-      handlers.onChecklist(selected).then(function () {
-        if (latestModel.cardId === savingCard) closeChecklist();
+      linkError.textContent = "";
+      handlers.onLinkAdd(linkInput.value).then(function () {
+        if (latestModel.cardId === savingCard) linkInput.value = "";
       }).catch(function (error) {
-        if (latestModel.cardId !== savingCard) return;
-        paintChecklist(latestModel);
-        checklistError.textContent = error.message || "Could not change the checklist.";
+        if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not add child card.";
       });
-    }
+    });
 
     const form = h("form", { class: "log-form" }, [
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
@@ -148,19 +127,20 @@
     }
 
     const limitForm = h("form", { class: "limit-form" }, [
+      h("label", { for: "epic-limit", class: "muted" }, "Limit"),
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
       limitError
     ]);
-    const epicHelp = helpTip("Child cards come from the selected subtasks checklist. By default, the first checklist is used. Link cards on this board with trello.com/c/… URLs. Time on this card is excluded.");
+    const epicHelp = helpTip("Add links to child cards on this board. The Power-Up stores this list and sums time from child cards, including nested epics. Time on this epic card is excluded.");
     const epicSection = h("section", { class: "epic", hidden: true }, [
       h("div", { class: "epic-header" }, [
-        h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
+        h("h2", { class: "epic-heading" }, ["Epic summary", epicHelp]),
         h("div", { class: "epic-divider" }, logToggle)
       ]),
-      checklistControl,
       limitSummary,
       limitForm,
-      epicBody
+      epicBody,
+      linkForm
     ]);
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
@@ -237,31 +217,6 @@
       cancelLimit.hidden = !hasLimit;
       cancelLimit.disabled = !!model.saving;
       clearLimit.hidden = !hasLimit;
-    }
-
-    function paintChecklist(model) {
-      const checklists = model.checklists || [];
-      const selected = model.subtasksChecklistId
-        ? checklists.find(function (list) { return list.id === model.subtasksChecklistId; }) : checklists[0];
-      const canWrite = model.canWrite !== false;
-      const disabled = !!model.saving || !!model.childrenLoading || !canWrite;
-      if (!canWrite) editingChecklist = false;
-      checklistControl.hidden = !checklists.length && !model.subtasksChecklistId;
-      checklistSummary.hidden = editingChecklist;
-      checklistEditor.hidden = !editingChecklist;
-      checklistValue.textContent = selected ? selected.name || "Checklist" : "Selected checklist unavailable";
-      editChecklist.hidden = !canWrite;
-      editChecklist.disabled = disabled;
-      clear(checklistSelect);
-      checklists.forEach(function (list) {
-        if (list.id) checklistSelect.appendChild(h("option", { value: list.id }, list.name || "Checklist"));
-      });
-      if (!selected) checklistSelect.appendChild(h("option", { value: "", disabled: true }, "Selected checklist unavailable"));
-      checklistSelect.value = selected ? selected.id : "";
-      checklistSelect.disabled = disabled;
-      cancelChecklist.disabled = !!model.saving;
-      resetChecklist.hidden = !model.subtasksChecklistId;
-      resetChecklist.disabled = disabled;
     }
 
     function showLimitError(error) {
@@ -345,8 +300,8 @@
       const settings = model.settings;
       const cardChanged = model.cardId !== cardId;
       if (cardChanged) {
-        checklistError.textContent = "";
-        editingChecklist = false;
+        linkError.textContent = "";
+        linkInput.value = "";
         editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
@@ -355,7 +310,7 @@
         limitError.textContent = "";
         closeEdit();
       }
-      const showEpic = !!(model.children.length || model.limitMinutes != null || model.hasChecklists || model.subtasksChecklistId);
+      const showEpic = !!(model.children.length || model.limitMinutes != null);
       if (cardChanged || showEpic !== epicMode) setLogOpen(!showEpic);
       epicMode = showEpic;
 
@@ -372,7 +327,9 @@
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
-      paintChecklist(model);
+      linkForm.hidden = !canWrite;
+      linkInput.disabled = !!model.saving || !canWrite;
+      linkButton.disabled = !!model.saving || !canWrite;
       paintLimit(model);
 
       if (model.error) {
@@ -436,20 +393,8 @@
       if (!editingLimit && !limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
-      epicSection.hidden = !showEpic;
+      epicSection.hidden = false;
       if (!epicSection.hidden) paintEpic(model, settings);
-    }
-
-    function wantsReadAccess(model) {
-      return !!(handlers.canAuthorize && !model.authorized && model.needsChecklistAuth);
-    }
-
-    function appendAuthorizeButton() {
-      epicBody.appendChild(h("button", {
-        type: "button",
-        class: "button mod-primary",
-        onclick: function () { handlers.onAuthorize().catch(showLimitError); }
-      }, "Allow read access"));
     }
 
     function paintEpic(model, settings) {
@@ -458,77 +403,44 @@
         epicBody.appendChild(h("p", { class: "hint", role: "status" }, "Loading child cards…"));
         return;
       }
-      if (model.missingChecklist) {
-        epicBody.appendChild(h("p", { class: "hint", role: "status" }, "The selected subtasks checklist was not found. Edit the selection to choose another checklist."));
-        return;
-      }
-      if (model.limitMinutes == null) {
-        epicBody.appendChild(h("p", { class: "empty-state" }, model.children.length
-          ? model.children.length + " child cards. Set a limit to see remaining time."
-          : "Add trello.com/c/… links in the checklist, then set a limit."));
-        if (wantsReadAccess(model) || (model.needsChecklistAuth && !model.children.length)) {
-          epicBody.appendChild(h("p", { class: "hint" }, "Allow read access once to load checklist links from the REST API."));
-          appendAuthorizeButton();
-        }
-        if (model.unlinkedCount) {
-          epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items have no recognizable card link."));
-        }
-        return;
-      }
-
-      if (!model.children.length) {
-        epicBody.appendChild(h("p", { class: "empty-state" }, "No child cards found in the checklist."));
-        if (wantsReadAccess(model) || model.needsChecklistAuth) {
-          epicBody.appendChild(h("p", { class: "hint" }, "Trello often hides checklist item text in the Power-Up. Click Allow read access once to load pasted trello.com/c/… links."));
-          appendAuthorizeButton();
-        } else {
-          epicBody.appendChild(h("p", { class: "hint" }, "Paste each sub-task card link (trello.com/c/…) into a checklist item. Cards must be on this board in open lists."));
-        }
-        if (model.unlinkedCount) {
-          epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " items have no trello.com/c/ link we could match."));
-        }
-        return;
-      }
-
-      if (!model.kidsKnown) {
-        epicBody.appendChild(h("p", { class: "hint" }, "Some links or child cards are unavailable. Keep linked cards on this board in open lists, then reopen the card."));
-        if (handlers.canAuthorize) {
-          epicBody.appendChild(h("button", { type: "button", class: "button-link", onclick: function () { handlers.onAuthorize().catch(showLimitError); } }, "Allow read access"));
-        }
-        return;
-      }
-
-      const spent = model.children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
-      const left = model.limitMinutes - spent;
-      const ratio = model.limitMinutes ? Math.min(1, spent / model.limitMinutes) : 0;
-      epicBody.appendChild(h("div", { class: "remain " + (left < 0 ? "bad" : left === 0 ? "warn" : "ok") }, left < 0
-        ? "Over by " + format(-left, settings)
-        : format(left, settings) + " left"));
-      epicBody.appendChild(h("div", { class: "bar" + (left < 0 ? " is-over" : "") }, h("span", { style: "width:" + (Math.round(ratio * 1000) / 10) + "%" })));
-      epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings) + " of " + format(model.limitMinutes, settings)));
-      if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
-        "Est. finish: " + model.estimatedFinish,
-        helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped.")
-      ]));
-
-      if (!model.children.length) {
-        epicBody.appendChild(h("p", { class: "empty-state" }, "No cards in checklists."));
-      } else {
-        const childList = h("div", { class: "child-list" });
-        model.children.forEach(function (child) {
-          const name = child.url ? h("a", { href: child.url, target: "_blank", rel: "noopener" }, child.name) : child.name;
-          childList.appendChild(h("div", { class: "child" }, [
-            h("span", null, name),
-            h("strong", null, format(child.minutes, settings))
+      if (model.children.length && !model.kidsKnown) {
+        epicBody.appendChild(h("p", { class: "hint" }, "Some child cards or time logs are unavailable. Totals are incomplete. Keep child cards on this board in open lists."));
+      } else if (model.children.length) {
+        const spent = model.children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
+        epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings)));
+        if (model.limitMinutes != null) {
+          const left = model.limitMinutes - spent;
+          const ratio = Math.min(1, spent / model.limitMinutes);
+          epicBody.appendChild(h("div", { class: "remain " + (left < 0 ? "bad" : left === 0 ? "warn" : "ok") }, left < 0
+            ? "Over by " + format(-left, settings) : format(left, settings) + " left"));
+          epicBody.appendChild(h("div", { class: "bar" + (left < 0 ? " is-over" : "") }, h("span", { style: "width:" + (Math.round(ratio * 1000) / 10) + "%" })));
+          if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
+            "Est. finish: " + model.estimatedFinish,
+            helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped.")
           ]));
-        });
-        epicBody.appendChild(h("details", { class: "child-details" }, [
-          h("summary", null, "Show child cards (" + model.children.length + ")"), childList
-        ]));
+        }
       }
-      if (model.unlinkedCount) {
-        epicBody.appendChild(h("p", { class: "hint" }, model.unlinkedCount + " checklist items are not linked to cards and are ignored."));
+      if (!model.children.length) {
+        epicBody.appendChild(h("p", { class: "empty-state" }, "Add child card links to track an epic. A limit is optional."));
+        return;
       }
+      const childList = h("div", { class: "child-list" });
+      model.children.forEach(function (child) {
+        const name = child.url ? h("a", { href: child.url, target: "_blank", rel: "noopener" }, child.name) : child.name;
+        const actions = h("div", { class: "child-actions" }, [
+          h("strong", { title: child.missing ? "Time unavailable" : "Spent time" }, child.missing ? "Unavailable" : format(child.minutes, settings))
+        ]);
+        if (model.canWrite !== false) actions.appendChild(entryAction("Remove child card",
+          '<path d="m6 6 12 12M6 18 18 6"/>', true, !!model.saving, function () {
+            linkError.textContent = "";
+            const savingCard = latestModel.cardId;
+            handlers.onLinkRemove(child.id).catch(function (error) {
+              if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not remove child card.";
+            });
+          }));
+        childList.appendChild(h("div", { class: "child" }, [h("span", { class: "child-name" }, name), actions]));
+      });
+      epicBody.appendChild(childList);
     }
 
     return { update: update };

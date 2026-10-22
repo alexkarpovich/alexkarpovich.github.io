@@ -24,9 +24,9 @@
     </ul>
 
     <h2>Epics</h2>
-    <p>An epic is a normal card with a checklist of child cards. Set a limit (e.g. <code>2w</code>). Remaining = limit minus time logged on child cards (including nested sub-tasks linked through checklists; shared tasks are counted once per epic). Time on the epic card itself does not count toward the limit. Checklist items count only when linked to a card or containing a <code>trello.com/c/...</code> URL.</p>
+    <p>An epic is a normal card with child cards stored by this Power-Up. In <strong>Epic summary</strong>, paste each child card's <code>https://trello.com/c/...</code> URL into <strong>Child cards</strong> and click <strong>Add child card</strong>. The list shows each card's title and spent time. An optional <strong>Limit</strong> (e.g. <code>2w</code>) enables remaining time and an estimated finish date. Nested epics roll up; shared tasks count once per epic. Time on the epic itself is excluded. Native Trello checklists do not affect these totals.</p>
     <p><strong>Est. finish</strong> converts the remaining budget into workdays from today using the board’s hours-per-day setting; weekends and excluded dates in Power-Up settings are skipped. Calculated totals may be cached in shared card data to speed up badges; the cache is optional and rebuilt from logs when needed.</p>
-    <p>On epic cards the card’s own time log starts collapsed; use the arrow in the <strong>Epic limit</strong> header to show or hide entries and the add-time form.</p>
+    <p>On epic cards the card’s own time log starts collapsed; use the arrow in the <strong>Epic summary</strong> header to show or hide entries and the add-time form.</p>
 
     <h2>Report export</h2>
     <p>Board <strong>Time report</strong> downloads <code>.xlsx</code> with three sheets: summary, entries, and epics (limits, spend in the selected period, remaining, estimated finish).</p>
@@ -41,7 +41,7 @@
       <li>Add the Power-Up to a board.</li>
     </ol>
     <p>For a repository named USER.github.io, omit REPO from the URL.</p>
-    <p>API key is optional. Set it in <code>js/config.js</code> if Trello does not return checklist items for epic remaining time in the report.</p>
+    <p>API key is optional. Set it in <code>js/config.js</code> to enable optional read access for time logs unavailable through the SDK.</p>
 
     <h2>Storage</h2>
     <p>Entries are stored in shared Power-Up data on each card (4096 characters per shared card scope). Everyone who can see the card can read the log. The interface allows authors to edit their own entries; shared storage does not enforce per-entry author permissions.</p>
