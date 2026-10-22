@@ -25,6 +25,7 @@
 
   function mountCardView(rootNode, handlers) {
     let editingLimit = false;
+    let editingChecklist = false;
     let latestModel = null;
     const duration = h("input", {
       class: "field-time",
@@ -85,17 +86,45 @@
     const epicBody = h("div", { class: "epic-body" });
     const checklistSelect = h("select", { id: "subtasks-checklist", "aria-label": "Subtasks checklist" });
     const checklistError = h("div", { class: "error", role: "alert" });
-    const checklistControl = h("div", { class: "checklist-control", hidden: true }, [
-      h("label", { for: "subtasks-checklist" }, "Subtasks checklist"), checklistSelect, checklistError
-    ]);
-    checklistSelect.addEventListener("change", function () {
-      const selected = checklistSelect.value;
+    const checklistValue = h("strong");
+    const editChecklist = entryAction("Edit subtasks checklist",
+      '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
+      false, false, function () {
+        editingChecklist = true;
+        checklistError.textContent = "";
+        paintChecklist(latestModel);
+        checklistSelect.focus();
+      });
+    const checklistSummary = h("div", { class: "limit-summary checklist-summary" }, [checklistValue, editChecklist]);
+    function closeChecklist() {
+      editingChecklist = false;
       checklistError.textContent = "";
-      handlers.onChecklist(selected).catch(function (error) {
-        checklistSelect.value = latestModel.subtasksChecklistId || "";
+      paintChecklist(latestModel);
+      editChecklist.focus();
+    }
+    const cancelChecklist = h("button", { type: "button", class: "button-link", onclick: closeChecklist }, "Cancel");
+    const resetChecklist = h("button", { type: "button", class: "button-link", onclick: function () { saveChecklist(""); } }, "Use first checklist");
+    const checklistEditor = h("div", { hidden: true }, [
+      h("div", { class: "control-row" }, [checklistSelect, cancelChecklist]), resetChecklist
+    ]);
+    const checklistControl = h("div", { class: "checklist-control", hidden: true }, [
+      h("span", { class: "checklist-label muted" }, "Subtasks checklist"), checklistSummary, checklistEditor, checklistError
+    ]);
+    checklistSelect.addEventListener("change", function () { saveChecklist(checklistSelect.value); });
+    checklistSelect.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !latestModel.saving) { event.preventDefault(); closeChecklist(); }
+    });
+    function saveChecklist(selected) {
+      const savingCard = latestModel.cardId;
+      checklistError.textContent = "";
+      handlers.onChecklist(selected).then(function () {
+        if (latestModel.cardId === savingCard) closeChecklist();
+      }).catch(function (error) {
+        if (latestModel.cardId !== savingCard) return;
+        paintChecklist(latestModel);
         checklistError.textContent = error.message || "Could not change the checklist.";
       });
-    });
+    }
 
     const form = h("form", { class: "log-form" }, [
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
@@ -128,9 +157,9 @@
         h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
         h("div", { class: "epic-divider" }, logToggle)
       ]),
+      checklistControl,
       limitSummary,
       limitForm,
-      checklistControl,
       epicBody
     ]);
 
@@ -208,6 +237,31 @@
       cancelLimit.hidden = !hasLimit;
       cancelLimit.disabled = !!model.saving;
       clearLimit.hidden = !hasLimit;
+    }
+
+    function paintChecklist(model) {
+      const checklists = model.checklists || [];
+      const selected = model.subtasksChecklistId
+        ? checklists.find(function (list) { return list.id === model.subtasksChecklistId; }) : checklists[0];
+      const canWrite = model.canWrite !== false;
+      const disabled = !!model.saving || !!model.childrenLoading || !canWrite;
+      if (!canWrite) editingChecklist = false;
+      checklistControl.hidden = !checklists.length && !model.subtasksChecklistId;
+      checklistSummary.hidden = editingChecklist;
+      checklistEditor.hidden = !editingChecklist;
+      checklistValue.textContent = selected ? selected.name || "Checklist" : "Selected checklist unavailable";
+      editChecklist.hidden = !canWrite;
+      editChecklist.disabled = disabled;
+      clear(checklistSelect);
+      checklists.forEach(function (list) {
+        if (list.id) checklistSelect.appendChild(h("option", { value: list.id }, list.name || "Checklist"));
+      });
+      if (!selected) checklistSelect.appendChild(h("option", { value: "", disabled: true }, "Selected checklist unavailable"));
+      checklistSelect.value = selected ? selected.id : "";
+      checklistSelect.disabled = disabled;
+      cancelChecklist.disabled = !!model.saving;
+      resetChecklist.hidden = !model.subtasksChecklistId;
+      resetChecklist.disabled = disabled;
     }
 
     function showLimitError(error) {
@@ -292,6 +346,7 @@
       const cardChanged = model.cardId !== cardId;
       if (cardChanged) {
         checklistError.textContent = "";
+        editingChecklist = false;
         editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
@@ -317,18 +372,7 @@
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
-      const checklists = model.checklists || [];
-      checklistControl.hidden = !checklists.length && !model.subtasksChecklistId;
-      clear(checklistSelect);
-      checklistSelect.appendChild(h("option", { value: "" }, "Automatic — first checklist" + (checklists[0] ? ": " + (checklists[0].name || "Checklist 1") : "")));
-      checklists.forEach(function (checklist, index) {
-        if (checklist.id) checklistSelect.appendChild(h("option", { value: checklist.id }, (index + 1) + ". " + (checklist.name || "Checklist")));
-      });
-      if (model.subtasksChecklistId && !checklists.some(function (list) { return list.id === model.subtasksChecklistId; })) {
-        checklistSelect.appendChild(h("option", { value: model.subtasksChecklistId }, "Selected checklist unavailable"));
-      }
-      checklistSelect.value = model.subtasksChecklistId || "";
-      checklistSelect.disabled = !!model.saving || !!model.childrenLoading || !canWrite;
+      paintChecklist(model);
       paintLimit(model);
 
       if (model.error) {
@@ -415,7 +459,7 @@
         return;
       }
       if (model.missingChecklist) {
-        epicBody.appendChild(h("p", { class: "hint", role: "status" }, "The selected subtasks checklist was not found. Select another checklist or switch to Automatic."));
+        epicBody.appendChild(h("p", { class: "hint", role: "status" }, "The selected subtasks checklist was not found. Edit the selection to choose another checklist."));
         return;
       }
       if (model.limitMinutes == null) {

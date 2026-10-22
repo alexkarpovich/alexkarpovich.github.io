@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
 // Includes per-card checklist selection and its card/preview controls.
-const budgets = { index: 34000, card: 52000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 48000 };
+const budgets = { index: 34000, card: 53000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 49000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.
