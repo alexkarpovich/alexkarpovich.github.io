@@ -20,6 +20,7 @@ function cardHarness(overrides = {}, environment = {}) {
   let render;
   let handlers;
   let latest;
+  const updates = [];
   let shared = {};
   let writes = 0;
   let rejectWrite = false;
@@ -62,7 +63,7 @@ function cardHarness(overrides = {}, environment = {}) {
     TimeEpic: epic,
     TimeCardView: { mount: (app, callbacks) => {
       handlers = callbacks;
-      return { update: value => { latest = structuredClone(value); } };
+      return { update: value => { latest = structuredClone(value); updates.push(latest); } };
     } }
   };
   runPage("card-page.js", window, {
@@ -72,7 +73,7 @@ function cardHarness(overrides = {}, environment = {}) {
   });
   return {
     render: () => render(), handlers: () => handlers, latest: () => latest,
-    writes: () => writes, options: () => options,
+    writes: () => writes, options: () => options, updates: () => updates,
     rejectWrite: value => { rejectWrite = value; },
     rejectRefresh: value => { rejectRefresh = value; },
     writable: value => { writable = value; },
@@ -85,9 +86,10 @@ const fields = { ymd: 20261020, minutes: 30, note: "Review" };
 test("owned card links persist without limits and ignore native checklists", async () => {
   const root = { id: "links-root", shortLink: "root", checklists: [{ checkItems: [{ idCard: "unrelated" }] }] };
   const task = { id: "task", shortLink: "task", name: "Task", url: "https://trello.com/c/task" };
-  const data = new Map([[root.id, {}], [task.id, { time: { e: [["work", 20261020, 30, 0]] } }]]);
+  const second = { id: "second", shortLink: "second", name: "Second", url: "https://trello.com/c/second" };
+  const data = new Map([[root.id, {}], [second.id, {}], [task.id, { time: { e: [["work", 20261020, 30, 0]] } }]]);
   const h = cardHarness({
-    card: async () => root, cards: async () => [root, task],
+    card: async () => root, cards: async () => [root, task, second],
     get: async (id, visibility, key, fallback) => {
       if (id === "board") return fallback;
       const raw = data.get(id === "card" ? root.id : id) || {};
@@ -108,7 +110,18 @@ test("owned card links persist without limits and ignore native checklists", asy
   await h.handlers().onAdd(fields);
   await h.handlers().onLimit(120);
   assert.deepEqual(data.get(root.id).time.lc, [task.id]);
+  await h.handlers().onLinkAdd(second.url);
+  await h.handlers().onLinkReorder([second.id, task.id]);
+  assert.deepEqual(data.get(root.id).time.lc, [second.id, task.id]);
+  assert.deepEqual(h.latest().children.map(child => child.id), [second.id, task.id]);
+  const beforeRefresh = h.updates().length;
+  await h.render();
+  assert.ok(h.updates().slice(beforeRefresh).every(value => !value.childrenLoading), "background refresh never replaces children with a loader");
+  await assert.rejects(h.handlers().onLinkReorder([task.id]), /Child cards changed/);
+  await assert.rejects(h.handlers().onLinkReorder([task.id, task.id]), /Child cards changed/);
+  await h.handlers().onLinkRemove(second.id);
   h.writable(false);
+  await assert.rejects(h.handlers().onLinkReorder([task.id]), /read-only/);
   await assert.rejects(h.handlers().onLinkRemove(task.id), /read-only/);
   await assert.rejects(h.handlers().onLinkAdd(task.url), /read-only/);
   h.writable(true);

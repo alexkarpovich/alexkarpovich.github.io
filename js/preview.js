@@ -136,6 +136,12 @@
       paintReport();
       return Promise.resolve();
     },
+    onLinkReorder: function (ids) {
+      selected().kids = ids.slice();
+      paintCard();
+      paintReport();
+      return Promise.resolve();
+    },
     onLinkRemove: function (id) {
       selected().kids = (selected().kids || []).filter(function (childId) { return childId !== id; });
       paintCard();
@@ -280,10 +286,41 @@
     document.querySelector('#card-app button[aria-label="Remove child card"]').click();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 1, "remove child card");
+    clickButton("card-app", "Add child card");
     document.querySelector('#card-app input[name="card-link"]').value = "https://trello.com/c/design";
     document.querySelector("#card-app .link-form").requestSubmit();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 2, "add child card");
+    const cardHost = document.getElementById("card-app");
+    const observer = new MutationObserver(function () {});
+    observer.observe(cardHost, { subtree: true, childList: true, attributes: true, characterData: true });
+    expect(cardView.update(cardModel(selected())) === false, "unchanged model skipped");
+    expect(observer.takeRecords().length === 0, "unchanged model leaves DOM untouched");
+    observer.disconnect();
+    const stableChild = cardHost.querySelector(".child");
+    const savingModel = cardModel(selected());
+    savingModel.saving = true;
+    cardView.update(savingModel);
+    expect(cardHost.querySelector(".child") === stableChild, "saving preserves child rows");
+    paintCard();
+    expect(cardHost.querySelector(".link-form").hidden, "add form hidden after save");
+    const originalOrder = selected().kids.join(",");
+    cardHost.querySelector(".drag-handle").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await settle();
+    expect(selected().kids.join(",") !== originalOrder, "keyboard reorders children");
+    const rows = cardHost.querySelectorAll(".child");
+    const transfer = new DataTransfer();
+    rows[0].querySelector(".drag-handle").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    rows[1].dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, clientY: rows[1].getBoundingClientRect().bottom - 1, dataTransfer: transfer }));
+    await settle();
+    expect(selected().kids.join(",") === originalOrder, "drag restores order");
+    const originalLimit = selected().limitMinutes;
+    selected().limitMinutes = 30;
+    paintCard();
+    expect(!!cardHost.querySelector(".epic-progress-over"), "over-budget segment");
+    expect(cardHost.querySelector(".epic-progress").textContent.includes("Over by"), "over-budget value");
+    selected().limitMinutes = originalLimit;
+    paintCard();
     document.querySelector('#card-app button[aria-label="Edit epic limit"]').click();
     document.querySelector('#card-app .limit-form .button-link').click();
     await settle();

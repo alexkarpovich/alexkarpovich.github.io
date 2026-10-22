@@ -52,18 +52,22 @@
   async function boot() {
     view = window.TimeCardView.mount(app, {
       settings: function () { return current ? current.settings : window.TimeDuration.normalizeSettings(null); },
-      canAuthorize: !!appKey(),
       onAdd: onAdd,
       onUpdate: onUpdate,
       onDelete: onDelete,
       onLimit: onLimit,
       onLinkAdd: onLinkAdd,
       onLinkRemove: onLinkRemove,
-      onAuthorize: onAuthorize
+      onLinkReorder: onLinkReorder
     });
     if (window.ResizeObserver) {
       let queued = false;
-      new window.ResizeObserver(function () {
+      let lastSize = "";
+      new window.ResizeObserver(function (entries) {
+        const rect = entries[0].contentRect;
+        const size = Math.ceil(rect.width) + ":" + Math.ceil(rect.height);
+        if (size === lastSize) return;
+        lastSize = size;
         if (queued) return;
         queued = true;
         requestAnimationFrame(function () {
@@ -94,8 +98,8 @@
     const status = document.getElementById("load-error");
     if (status) status.remove();
     current = loaded;
-    view.update(loaded);
-    requestAnimationFrame(function () { t.sizeTo("#app").catch(function () {}); });
+    const changed = view.update(loaded);
+    if (changed !== false && !window.ResizeObserver) requestAnimationFrame(function () { t.sizeTo("#app").catch(function () {}); });
   }
 
   async function withSaving(work) {
@@ -215,6 +219,21 @@
     });
   }
 
+  function onLinkReorder(ids) {
+    if (!canWriteCard()) return Promise.reject(new Error("This board is read-only."));
+    if (current && window.TimeEpic.sameIds(ids, current.linkedIds)) return Promise.resolve();
+    return withSaving(function () {
+      return mutate(function (state) {
+        if (!Array.isArray(ids) || ids.length !== state.linkedIds.length || new Set(ids).size !== ids.length ||
+          ids.some(function (id) { return !state.linkedIds.includes(id); })) {
+          throw new Error("Child cards changed. Refresh the card before reordering.");
+        }
+        state.linkedIds = ids.slice();
+        return state;
+      });
+    });
+  }
+
   async function mutate(change) {
     const card = await t.card("id");
     const shared = await t.get(card.id, "shared");
@@ -258,19 +277,6 @@
     if (fit && fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
   }
 
-  function onAuthorize() {
-    if (!appKey()) return Promise.reject(new Error("No API key in config.js for read access."));
-    return window.TimeRuntime.authorizeReadAccess(t).then(function () {
-      return refresh();
-    }).then(function () {
-      if (current && current.authorized && current.children.length) {
-        t.alert({ message: "Read access granted. Child cards loaded.", duration: 4, display: "success" });
-      } else if (current && current.authorized) {
-        t.alert({ message: "Read access granted. Reopen the card to refresh child cards.", duration: 5, display: "info" });
-      }
-    });
-  }
-
   async function loadModel(client) {
     const [rawSettings, card, member, raw] = await Promise.all([
       client.get("board", "shared", "settings", null),
@@ -305,8 +311,10 @@
     if (!state.linkedIds.length) return base;
 
     // The time form and its entries are usable while optional epic data loads.
-    current = Object.assign({}, base, { childrenLoading: true });
-    view.update(current);
+    if (!current || current.cardId !== card.id) {
+      current = Object.assign({}, base, { childrenLoading: true });
+      view.update(current);
+    }
     let related;
     try {
       related = await window.TimeRollupCache.loadCardChildren(client, card, appKey(), { shared: raw });

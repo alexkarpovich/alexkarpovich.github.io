@@ -580,3 +580,19 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 @media (max-width: 860px) {
   .preview-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.add-child { margin-top: 8px; }
+.epic-progress { position: relative; overflow: hidden; isolation: isolate; margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--btn-bg); }
+.epic-progress-fill, .epic-progress-over { position: absolute; inset: 0 auto 0 0; z-index: -1; background: color-mix(in srgb, var(--green) 25%, transparent); }
+.epic-progress-over { inset: 0 0 0 auto; border-left: 2px solid var(--red); background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--red) 16%, transparent) 6px 12px), color-mix(in srgb, var(--red) 18%, transparent); }
+.epic-progress-labels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 9px 10px; font-size: 13px; }
+.epic-progress-labels > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.progress-caption { font-size: 11px; }
+.progress-remaining { text-align: right; }
+.is-over .progress-remaining { color: var(--red); }
+.child-name { flex: 1; }
+.child .drag-handle { flex-shrink: 0; cursor: grab; touch-action: none; }
+.child .drag-handle:active { cursor: grabbing; }
+.child.is-dragging { opacity: 0.45; }
+.child.drop-before { box-shadow: 0 -2px var(--blue); }
+.child.drop-after { box-shadow: 0 2px var(--blue); }

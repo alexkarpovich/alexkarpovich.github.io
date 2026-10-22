@@ -26,6 +26,11 @@
   function mountCardView(rootNode, handlers) {
     let editingLimit = false;
     let latestModel = null;
+    let lastPresentation = "";
+    let lastEntries = "";
+    let lastEpic = "";
+    let addingChild = false;
+    let draggedId = "";
     const duration = h("input", {
       class: "field-time",
       name: "duration",
@@ -88,18 +93,41 @@
       id: "epic-card-link", name: "card-link", type: "url", placeholder: "https://trello.com/c/…",
       "aria-label": "Child card link", autocomplete: "off", required: true
     });
-    const linkButton = h("button", { type: "submit", class: "button" }, "Add child card");
+    const linkButton = h("button", { type: "submit", class: "button" }, "Add");
     const linkError = h("div", { class: "error", role: "alert" });
-    const linkForm = h("form", { class: "link-form" }, [
+    const addChild = h("button", { type: "button", class: "button-link add-child", "aria-expanded": "false", "aria-controls": "child-card-form", onclick: function () {
+      addingChild = true;
+      paintLinkForm();
+      linkInput.focus();
+    } }, "Add child card");
+    function closeLinkForm() {
+      addingChild = false;
+      linkInput.value = "";
+      linkError.textContent = "";
+      paintLinkForm();
+      addChild.focus();
+    }
+    const cancelChild = h("button", { type: "button", class: "button-link", onclick: closeLinkForm }, "Cancel");
+    const linkForm = h("form", { id: "child-card-form", class: "link-form", hidden: true }, [
       h("label", { for: "epic-card-link", class: "muted" }, "Child cards"),
-      h("div", { class: "control-row" }, [linkInput, linkButton]), linkError
+      h("div", { class: "control-row" }, [linkInput, linkButton, cancelChild])
     ]);
+    function paintLinkForm() {
+      const writable = latestModel && latestModel.canWrite !== false;
+      addChild.hidden = !writable || addingChild;
+      addChild.disabled = !!(latestModel && latestModel.saving);
+      addChild.setAttribute("aria-expanded", String(addingChild));
+      linkForm.hidden = !writable || !addingChild;
+    }
+    linkInput.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !latestModel.saving) { event.preventDefault(); closeLinkForm(); }
+    });
     linkForm.addEventListener("submit", function (event) {
       event.preventDefault();
       const savingCard = latestModel.cardId;
       linkError.textContent = "";
       handlers.onLinkAdd(linkInput.value).then(function () {
-        if (latestModel.cardId === savingCard) linkInput.value = "";
+        if (latestModel.cardId === savingCard) closeLinkForm();
       }).catch(function (error) {
         if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not add child card.";
       });
@@ -140,7 +168,9 @@
       limitSummary,
       limitForm,
       epicBody,
-      linkForm
+      addChild,
+      linkForm,
+      linkError
     ]);
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
@@ -297,11 +327,20 @@
 
     function update(model) {
       latestModel = model;
+      const childValues = model.children.map(function (child) { return [child.id, child.name, child.url, child.minutes, child.missing]; });
+      const presentation = JSON.stringify([model.cardId, model.settings, model.currentMemberId, model.canWrite, model.canAdd,
+        model.entries, model.limitMinutes, childValues,
+        model.kidsKnown, !!model.childrenLoading, model.estimatedFinish, model.warning, model.error, model.limitError, !!model.saving,
+        model.storageRatio, model.debugEpic]);
+      if (presentation === lastPresentation) return false;
+      lastPresentation = presentation;
       const settings = model.settings;
       const cardChanged = model.cardId !== cardId;
       if (cardChanged) {
         linkError.textContent = "";
         linkInput.value = "";
+        addingChild = false;
+        draggedId = "";
         editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
@@ -327,7 +366,9 @@
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
-      linkForm.hidden = !canWrite;
+      if (!canWrite) addingChild = false;
+      paintLinkForm();
+      cancelChild.disabled = !!model.saving;
       linkInput.disabled = !!model.saving || !canWrite;
       linkButton.disabled = !!model.saving || !canWrite;
       paintLimit(model);
@@ -338,42 +379,48 @@
       }
       if (model.limitError) limitError.textContent = model.limitError;
 
-      clear(total);
-      const own = model.entries.reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
-      total.appendChild(h("span", { class: "muted" }, "On card"));
-      total.appendChild(h("strong", null, format(own, settings)));
+      const entriesKey = JSON.stringify([model.cardId, model.entries, settings, model.currentMemberId, canWrite]);
+      if (entriesKey !== lastEntries) {
+        lastEntries = entriesKey;
+        clear(total);
+        const own = model.entries.reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
+        total.appendChild(h("span", { class: "muted" }, "On card"));
+        total.appendChild(h("strong", null, format(own, settings)));
 
-      clear(list);
-      const sorted = sortEntries(model.entries);
-      if (!sorted.length) {
-        list.appendChild(h("p", { class: "empty-state" }, "No entries yet."));
-      } else {
-        sorted.forEach(function (entry) {
-          const mine = entry.memberId === model.currentMemberId;
-          const actions = h("div", { class: "entry-actions" });
-          if (mine && canWrite) {
-            actions.appendChild(entryAction("Edit entry",
-              '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
-              false, !!model.saving, function () { openEdit(entry, settings); }));
-            actions.appendChild(entryAction("Delete entry",
-              '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
-              true, !!model.saving, function () {
-                handlers.onDelete(entry.id).catch(function (error) { formError.textContent = error.message || "Could not delete entry."; });
-              }));
-          }
-          list.appendChild(h("div", { class: "entry" }, [
-            h("div", { class: "entry-heading" }, [
-              h("div", { class: "entry-main" }, [
-                h("strong", null, format(entry.minutes, settings)),
-                h("span", null, root.TimeDuration.ymdString(entry.ymd)),
-                h("span", { class: "author", title: entry.memberName }, entry.memberName)
+        clear(list);
+        const sorted = sortEntries(model.entries);
+        if (!sorted.length) {
+          list.appendChild(h("p", { class: "empty-state" }, "No entries yet."));
+        } else {
+          sorted.forEach(function (entry) {
+            const mine = entry.memberId === model.currentMemberId;
+            const actions = h("div", { class: "entry-actions" });
+            if (mine && canWrite) {
+              actions.appendChild(entryAction("Edit entry",
+                '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
+                false, !!model.saving, function () { openEdit(entry, settings); }));
+              actions.appendChild(entryAction("Delete entry",
+                '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
+                true, !!model.saving, function () {
+                  handlers.onDelete(entry.id).catch(function (error) { formError.textContent = error.message || "Could not delete entry."; });
+                }));
+            }
+            list.appendChild(h("div", { class: "entry" }, [
+              h("div", { class: "entry-heading" }, [
+                h("div", { class: "entry-main" }, [
+                  h("strong", null, format(entry.minutes, settings)),
+                  h("span", null, root.TimeDuration.ymdString(entry.ymd)),
+                  h("span", { class: "author", title: entry.memberName }, entry.memberName)
+                ]),
+                mine && canWrite ? actions : null
               ]),
-              mine && canWrite ? actions : null
-            ]),
-            entry.note ? h("div", { class: "note" }, entry.note) : null
-          ]));
-        });
+              entry.note ? h("div", { class: "note" }, entry.note) : null
+            ]));
+          });
+        }
+
       }
+      list.querySelectorAll("button").forEach(function (button) { button.disabled = !!model.saving || !canWrite; });
 
       if (editingId && !model.entries.some(function (e) { return e.id === editingId; })) {
         closeEdit();
@@ -394,7 +441,44 @@
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
       epicSection.hidden = false;
-      if (!epicSection.hidden) paintEpic(model, settings);
+      const epicKey = JSON.stringify([model.cardId, settings, model.limitMinutes, model.kidsKnown, !!model.childrenLoading,
+        model.estimatedFinish, canWrite, childValues]);
+      if (epicKey !== lastEpic) {
+        lastEpic = epicKey;
+        const childList = epicBody.querySelector(".child-list");
+        const scroll = childList ? childList.scrollTop : 0;
+        endDrag();
+        paintEpic(model, settings);
+        const nextList = epicBody.querySelector(".child-list");
+        if (nextList) nextList.scrollTop = scroll;
+      }
+      epicBody.querySelectorAll("button").forEach(function (button) {
+        button.disabled = !!model.saving || !canWrite;
+        if (button.classList.contains("drag-handle")) button.draggable = !button.disabled;
+      });
+      return true;
+    }
+
+    function clearDropTargets() {
+      epicBody.querySelectorAll(".drop-before, .drop-after").forEach(function (row) { row.classList.remove("drop-before", "drop-after"); });
+    }
+
+    function endDrag() {
+      draggedId = "";
+      clearDropTargets();
+      epicBody.querySelectorAll(".is-dragging").forEach(function (row) { row.classList.remove("is-dragging"); });
+    }
+
+    function reorderChildren(ids, focusId) {
+      const savingCard = latestModel.cardId;
+      linkError.textContent = "";
+      handlers.onLinkReorder(ids).then(function () {
+        if (latestModel.cardId !== savingCard) return;
+        const row = Array.from(epicBody.querySelectorAll(".child")).find(function (item) { return item.dataset.childId === focusId; });
+        if (row) row.querySelector(".drag-handle").focus();
+      }).catch(function (error) {
+        if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not reorder child cards.";
+      });
     }
 
     function paintEpic(model, settings) {
@@ -407,17 +491,31 @@
         epicBody.appendChild(h("p", { class: "hint" }, "Some child cards or time logs are unavailable. Totals are incomplete. Keep child cards on this board in open lists."));
       } else if (model.children.length) {
         const spent = model.children.reduce(function (sum, child) { return sum + child.minutes; }, 0);
-        epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings)));
         if (model.limitMinutes != null) {
           const left = model.limitMinutes - spent;
-          const ratio = Math.min(1, spent / model.limitMinutes);
-          epicBody.appendChild(h("div", { class: "remain " + (left < 0 ? "bad" : left === 0 ? "warn" : "ok") }, left < 0
-            ? "Over by " + format(-left, settings) : format(left, settings) + " left"));
-          epicBody.appendChild(h("div", { class: "bar" + (left < 0 ? " is-over" : "") }, h("span", { style: "width:" + (Math.round(ratio * 1000) / 10) + "%" })));
+          const over = left < 0;
+          const scale = Math.max(spent, model.limitMinutes);
+          const filled = Math.min(spent, model.limitMinutes) / scale * 100;
+          const label = over ? "Over by " + format(-left, settings) : format(left, settings) + " left";
+          epicBody.appendChild(h("div", {
+            class: "epic-progress" + (over ? " is-over" : ""), role: "progressbar",
+            "aria-label": "Child cards time", "aria-valuemin": "0", "aria-valuemax": String(model.limitMinutes),
+            "aria-valuenow": String(Math.min(spent, model.limitMinutes)),
+            "aria-valuetext": format(spent, settings) + " spent by child cards; " + label
+          }, [
+            h("div", { class: "epic-progress-fill", style: "width:" + filled + "%", "aria-hidden": "true" }),
+            over ? h("div", { class: "epic-progress-over", style: "width:" + (100 - filled) + "%", "aria-hidden": "true" }) : null,
+            h("div", { class: "epic-progress-labels", "aria-hidden": "true" }, [
+              h("span", null, [h("span", { class: "progress-caption" }, "Spent by child cards"), h("strong", null, format(spent, settings))]),
+              h("span", { class: "progress-remaining" }, [h("span", { class: "progress-caption" }, over ? "Over limit" : "Remaining"), h("strong", null, over ? "Over by " + format(-left, settings) : format(left, settings) + " left")])
+            ])
+          ]));
           if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
             "Est. finish: " + model.estimatedFinish,
             helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped.")
           ]));
+        } else {
+          epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings)));
         }
       }
       if (!model.children.length) {
@@ -438,7 +536,52 @@
               if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not remove child card.";
             });
           }));
-        childList.appendChild(h("div", { class: "child" }, [h("span", { class: "child-name" }, name), actions]));
+        const row = h("div", { class: "child", "data-child-id": child.id }, [h("span", { class: "child-name" }, name), actions]);
+        if (model.canWrite !== false) {
+          const handle = entryAction("Move child card: " + child.name,
+            '<path d="M8 5h1m6 0h1M8 12h1m6 0h1M8 19h1m6 0h1"/>', false, !!model.saving, function () {});
+          handle.classList.add("drag-handle");
+          handle.title = "Drag to reorder, or use Arrow Up / Arrow Down";
+          handle.draggable = !model.saving;
+          handle.addEventListener("dragstart", function (event) {
+            if (latestModel.saving) { event.preventDefault(); return; }
+            draggedId = child.id;
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", child.id);
+            row.classList.add("is-dragging");
+          });
+          handle.addEventListener("dragend", function () { endDrag(); });
+          handle.addEventListener("keydown", function (event) {
+            if (latestModel.saving || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault();
+            const ids = latestModel.children.map(function (item) { return item.id; });
+            const index = ids.indexOf(child.id), target = index + (event.key === "ArrowUp" ? -1 : 1);
+            if (target < 0 || target >= ids.length) return;
+            ids.splice(index, 1); ids.splice(target, 0, child.id);
+            reorderChildren(ids, child.id);
+          });
+          row.prepend(handle);
+          row.addEventListener("dragover", function (event) {
+            if (!draggedId || latestModel.saving || draggedId === child.id) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            clearDropTargets();
+            row.classList.add(event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2 ? "drop-before" : "drop-after");
+          });
+          row.addEventListener("drop", function (event) {
+            if (!draggedId || latestModel.saving) return;
+            event.preventDefault();
+            const moved = draggedId;
+            const before = event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2;
+            const ids = latestModel.children.map(function (item) { return item.id; }).filter(function (id) { return id !== moved; });
+            const index = ids.indexOf(child.id);
+            endDrag();
+            if (index < 0) return;
+            ids.splice(index + (before ? 0 : 1), 0, moved);
+            reorderChildren(ids, moved);
+          });
+        }
+        childList.appendChild(row);
       });
       epicBody.appendChild(childList);
     }

@@ -8,8 +8,8 @@ import { transform } from "esbuild";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
-// Includes owned epic links and their card/preview controls.
-const budgets = { index: 34000, card: 53000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 49000 };
+// Preview also includes interactive regression checks; production card stays within 53 KB.
+const budgets = { index: 34000, card: 53000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 55000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.
