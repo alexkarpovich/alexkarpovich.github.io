@@ -258,13 +258,17 @@
   async function loadCardChildren(client, card, appKey, modelApi, epicApi, options) {
     const opts = options || {};
     const getRest = opts.getRest || lazyCredentials(client, appKey);
-    const empty = Array.isArray(card.checklists) && card.checklists.length === 0;
+    const empty = !card.subtasksChecklistId && card.subtasksChecklistId !== false && Array.isArray(card.checklists) && card.checklists.length === 0;
     const boardCards = empty ? [] : await (opts.cards
       ? opts.cards()
       : client.cards("id", "name", "url", "shortLink", "checklists"));
     const shortLinks = new Map(boardCards.map(function (item) { return [item.shortLink, item.id]; }));
     const nameIndex = epicApi.uniqueNameIndex(boardCards);
-    const inspection = opts.inspections && opts.inspections.get(card.id) || (empty
+    function knownInspection(info) {
+      const cached = opts.inspections && opts.inspections.get(info.id);
+      return cached && (cached.subtasksChecklistId ?? null) === (info.subtasksChecklistId ?? null) ? cached : null;
+    }
+    const inspection = knownInspection(card) || (empty
       ? { complete: true, childIds: [], checklists: [], unlinkedCount: 0 }
       : await resolveChecklistInspection(client, card.id, card, true, appKey, epicApi, {
         boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
@@ -285,9 +289,12 @@
       loaded.timeById.forEach(function (value, id) { timeById.set(id, value); });
       loaded.unreadableIds.forEach(function (id) { unreadableIds.add(id); });
       const nested = await mapPool(layer, 4, async function (id) {
-        const info = byId.get(id), state = modelApi.decode(timeById.get(id));
-        if (state.limitMinutes == null && !(info.checklists && info.checklists.length)) return [];
-        const childInspection = opts.inspections && opts.inspections.get(id) || await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
+        const state = modelApi.decode(timeById.get(id));
+        const info = Object.assign({}, byId.get(id), {
+          subtasksChecklistId: timeById.get(id) === undefined ? false : state.subtasksChecklistId
+        });
+        if (state.limitMinutes == null && !state.subtasksChecklistId && !(info.checklists && info.checklists.length)) return [];
+        const childInspection = knownInspection(info) || await resolveChecklistInspection(client, id, info, true, appKey, epicApi, {
           boardCards: boardCards, shortLinks: shortLinks, nameIndex: nameIndex, getRest: getRest
         });
         inspections.set(id, childInspection);
@@ -329,6 +336,7 @@
 
   async function resolveChecklistInspection(client, cardId, card, allowRemote, appKey, epicApi, boardContext) {
     let checklists = card && card.checklists;
+    const selectedId = card && card.subtasksChecklistId;
     let shortLinks = boardContext && boardContext.shortLinks;
     let nameIndex = boardContext && boardContext.nameIndex;
     if (!shortLinks || !nameIndex) {
@@ -341,7 +349,7 @@
       if (!nameIndex) nameIndex = epicApi.uniqueNameIndex(cards);
     }
     function inspect() {
-      return epicApi.inspectChecklists(checklists, cardId, shortLinks, nameIndex);
+      return epicApi.inspectChecklists(checklists, cardId, shortLinks, nameIndex, selectedId);
     }
     let local = inspect();
     let checklistAuthNeeded = false;
@@ -367,7 +375,10 @@
       childIds: local.childIds,
       unlinkedCount: local.unlinkedCount,
       unresolvedCount: local.unresolvedCount,
-      checklists: checklists,
+      checklists: epicApi.selectChecklists(checklists, selectedId),
+      allChecklists: checklists,
+      subtasksChecklistId: selectedId,
+      missingChecklist: !!selectedId && Array.isArray(checklists) && !checklists.some(function (list) { return list.id === selectedId; }),
       checklistAuthNeeded: checklistAuthNeeded,
       remoteChecklistsFetched: remoteChecklistsFetched
     };

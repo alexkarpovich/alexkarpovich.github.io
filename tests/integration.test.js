@@ -82,6 +82,106 @@ function cardHarness(overrides = {}, environment = {}) {
 
 const fields = { ymd: 20261020, minutes: 30, note: "Review" };
 
+test("card selection is shared, defaults to first, survives log edits and can reset to automatic", async () => {
+  const root = { id: "selection-root", checklists: [
+    { id: "tasks", name: "Sub-tasks", pos: 10, checkItems: [{ idCard: "task-a" }] },
+    { id: "deps", name: "Depends on", pos: 20, checkItems: [{ idCard: "task-b" }] }
+  ] };
+  const cards = [root, { id: "task-a", checklists: [] }, { id: "task-b", checklists: [] }];
+  const data = new Map([
+    [root.id, { time: { lim: 120, e: [] } }],
+    ["task-a", { time: { e: [["a", 20261020, 30, 0]] } }],
+    ["task-b", { time: { e: [["b", 20261020, 90, 0]] } }]
+  ]);
+  const h = cardHarness({
+    card: async () => structuredClone(root), cards: async () => structuredClone(cards),
+    get: async (id, visibility, key, fallback) => {
+      if (id === "board") return fallback;
+      const raw = data.get(id === "card" ? root.id : id) || {};
+      return structuredClone(key ? raw[key] ?? fallback : raw);
+    },
+    set: async (id, visibility, key, value) => {
+      assert.equal(visibility, "shared");
+      Object.assign(data.get(id), typeof key === "object" ? key : { [key]: structuredClone(value) });
+    },
+    remove: async (id, visibility, key) => { delete data.get(id)[key]; }
+  });
+  await h.render();
+  assert.equal(h.latest().subtasksChecklistId, null);
+  assert.equal(h.latest().children[0].id, "task-a");
+  await h.handlers().onChecklist("deps");
+  assert.equal(data.get(root.id).time.sc, "deps");
+  assert.equal(h.latest().children[0].id, "task-b");
+  await h.handlers().onAdd(fields);
+  await h.handlers().onLimit(null);
+  await h.handlers().onDelete(h.latest().entries[0].id);
+  assert.equal(data.get(root.id).time.sc, "deps", "choice survives deleting the last log and limit");
+  root.checklists[1].name = "Renamed";
+  root.checklists[0].pos = 30;
+  await h.render();
+  assert.equal(h.latest().children[0].id, "task-b");
+  h.writable(false);
+  await assert.rejects(h.handlers().onChecklist("tasks"), /read-only/);
+  h.writable(true);
+  await assert.rejects(h.handlers().onChecklist("gone"), /no longer available/);
+  await h.handlers().onChecklist("");
+  assert.equal(data.get(root.id).time, undefined, "automatic mode needs no source data on an empty card");
+  assert.equal(h.latest().children[0].id, "task-b", "automatic uses the new first position");
+});
+
+test("reports and badges use the same selected checklist as the card, including REST fallback", async t => {
+  const root = { id: "report-selection-root", shortLink: "root", checklists: [
+    { id: "tasks", pos: 10, checkItems: [{ idCard: "task-a" }] },
+    { id: "deps", pos: 20, checkItems: [{ idCard: "task-b" }] }
+  ] };
+  const cards = [root, { id: "task-a", shortLink: "a", checklists: [] }, { id: "task-b", shortLink: "b", checklists: [] }];
+  const data = new Map([
+    [root.id, { lim: 120, e: [] }],
+    ["task-a", { e: [["a", 20261020, 30, 0]] }],
+    ["task-b", { e: [["b", 20261020, 90, 0]] }]
+  ]);
+  let render, latest, capabilities, remote = false;
+  const client = {
+    getContext: () => ({ board: "selection-board", card: root.id }),
+    render: callback => { render = callback; }, lists: async () => [], board: async () => ({ id: "selection-board" }),
+    card: async () => root,
+    cards: async () => cards.map(card => remote ? { ...card, checklists: card.checklists.map(list => ({ id: list.id, pos: list.pos })) } : card),
+    getRestApi: () => ({ isAuthorized: () => true, getToken: () => "test" }),
+    get: async (id, visibility, key) => id === "board" ? null : key === "time" ? data.get(id) : { time: data.get(id === "card" ? root.id : id) }
+  };
+  const window = {
+    parent: {}, location: { href: "https://example.com/index.html" }, TIMETRACK_CONFIG: { appKey: "key" },
+    TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
+    TimeAggregate: require("../js/aggregate"), TimeBadges: require("../js/badges"), TimeTheme: { bind() {} },
+    TimeDom: { clear() {} }, TimeReportView: { mount: () => ({
+      filters: () => ({ from: "2026-10-01", to: "2026-10-31" }), update: value => { latest = value; }
+    }) },
+    TrelloPowerUp: { iframe: () => client, initialize: value => { capabilities = value; } }
+  };
+  t.mock.method(globalThis, "fetch", async () => ({ ok: true, json: async () => cards }));
+  runPage("report-page.js", window, { document: { getElementById: () => ({}) } });
+  runPage("connector.js", window);
+  await render();
+  assert.equal(latest.epics[0].remainingMinutes, 90);
+  assert.equal((await capabilities["card-badges"](client))[0].text, "1h 30m left");
+  data.get(root.id).sc = "deps";
+  await render();
+  assert.equal(latest.epics[0].remainingMinutes, 30);
+  assert.equal((await capabilities["card-badges"](client))[0].text, "30m left");
+  remote = true;
+  await render();
+  assert.equal(latest.epics[0].remainingMinutes, 30);
+  remote = false;
+  delete data.get(root.id).sc;
+  root.checklists[0].checkItems.push({ idCard: "nested" });
+  cards.push({ id: "nested", checklists: [] });
+  data.set("nested", { sc: "deleted-checklist", e: [["own", 20261020, 75, 0]] });
+  await render();
+  assert.equal(latest.epics[0].known, false, "a missing nested checklist must not use its own log as a leaf");
+  assert.equal(latest.epics[0].remainingMinutes, null);
+  assert.equal((await capabilities["card-badges"](client))[0].text, "limit 2h");
+});
+
 test("ordinary cards load without scanning the board or looking up REST access", async () => {
   let reads = 0;
   let extraCalls = 0;

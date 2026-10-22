@@ -48,6 +48,19 @@ test("sorts by createdAt newest first", function () {
   assert.deepEqual(sorted.map(function (item) { return item.id; }), ["b", "c", "a"]);
 });
 
+test("a checklist choice survives without a limit or time entries and can return to automatic", () => {
+  const state = model.emptyState();
+  state.subtasksChecklistId = "chosen-list";
+  assert.equal(model.isEmpty(state), false);
+  const fitted = model.fitState(state);
+  assert.equal(fitted.state.subtasksChecklistId, "chosen-list");
+  assert.equal(model.decode(fitted.packed).subtasksChecklistId, "chosen-list");
+  state.subtasksChecklistId = null;
+  assert.equal(model.isEmpty(state), true);
+  assert.equal(model.decode(model.pack(state)).subtasksChecklistId, null);
+  assert.equal(model.decode({ e: [], lim: 120 }).subtasksChecklistId, null, "old cards use automatic selection");
+});
+
 test("refuses overflow without merging entries or removing notes", function () {
   const state = model.emptyState();
   for (let i = 0; i < 40; i += 1) {

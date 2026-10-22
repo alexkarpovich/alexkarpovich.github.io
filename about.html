@@ -12,7 +12,7 @@
 <body class="page">
   <main class="landing">
     <h1>Time Tracking for Trello</h1>
-    <p class="lead">A Power-Up that logs time on cards (<code>30m</code>, <code>1h 40m</code>, <code>1d</code>, <code>1w</code>), board reports with label and author filters, Excel export, and epic time limits. Data stays in Trello — no server required.</p>
+    <p class="lead">A Power-Up that logs time on cards (<code>30m</code>, <code>1h 40m</code>, <code>1d</code>, <code>1w</code>), board reports with label and author filters, Excel (.xlsx) export, and epic time limits with remaining budget and estimated finish. Data stays in Trello — no server required.</p>
     <p><a href="preview.html">Open UI preview</a></p>
 
     <h2>Format</h2>
@@ -24,7 +24,12 @@
     </ul>
 
     <h2>Epics</h2>
-    <p>An epic is a normal card with a checklist of child cards. Set a limit (e.g. <code>2w</code>). Remaining = limit minus time logged on child cards. Time on the epic card itself does not count toward the limit. Checklist items count only when linked to a card or containing a <code>trello.com/c/...</code> URL.</p>
+    <p>An epic is a normal card with a checklist of child cards. Set a limit (e.g. <code>2w</code>). Remaining = limit minus time logged on child cards (including nested sub-tasks linked through checklists; shared tasks are counted once per epic). Time on the epic card itself does not count toward the limit. Checklist items count only when linked to a card or containing a <code>trello.com/c/...</code> URL.</p>
+    <p><strong>Est. finish</strong> converts the remaining budget into workdays from today using the board’s hours-per-day setting; weekends and excluded dates in Power-Up settings are skipped. Calculated totals may be cached in shared card data to speed up badges; the cache is optional and rebuilt from logs when needed.</p>
+    <p>On epic cards the card’s own time log starts collapsed; use the arrow in the <strong>Epic limit</strong> header to show or hide entries and the add-time form.</p>
+
+    <h2>Report export</h2>
+    <p>Board <strong>Time report</strong> downloads <code>.xlsx</code> with three sheets: summary, entries, and epics (limits, spend in the selected period, remaining, estimated finish).</p>
 
     <h2>GitHub Pages</h2>
     <ol>

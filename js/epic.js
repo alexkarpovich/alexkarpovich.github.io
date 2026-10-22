@@ -140,8 +140,25 @@
     return { childIds: ids, unlinkedCount: unlinked, unresolvedCount: unresolved };
   }
 
+  function orderedChecklists(checklists) {
+    const lists = (checklists || []).filter(Boolean);
+    // SDK shells may omit position; in that case preserve the supplied order.
+    return lists.every(function (list) { return Number.isFinite(list.pos); })
+      ? lists.sort(function (a, b) { return a.pos - b.pos; }) : lists;
+  }
+
+  // null means automatic; false means the saved choice could not be read.
+  function selectChecklists(checklists, selectedId) {
+    if (!Array.isArray(checklists) || selectedId === false) return null;
+    const selected = selectedId
+      ? checklists.find(function (list) { return list && list.id === selectedId; })
+      : orderedChecklists(checklists)[0];
+    return selected ? [selected] : selectedId ? null : [];
+  }
+
   // Trello sometimes returns checklist shells without items. Treat that as unknown.
-  function inspectChecklists(checklists, selfId, shortLinkToId, cardsByName) {
+  function inspectChecklists(checklists, selfId, shortLinkToId, cardsByName, selectedId) {
+    checklists = selectChecklists(checklists, selectedId);
     if (!Array.isArray(checklists)) return { complete: false, childIds: null, unlinkedCount: 0 };
     if (checklists.length === 0) return { complete: true, childIds: [], unlinkedCount: 0 };
     const missingItems = checklists.some(function (list) { return !list || !Array.isArray(list.checkItems); });
@@ -183,6 +200,8 @@
   }
 
   return {
+    orderedChecklists: orderedChecklists,
+    selectChecklists: selectChecklists,
     cardIdFromCheckItem: cardIdFromCheckItem,
     checkItemLabel: checkItemLabel,
     shortLinksInText: shortLinksInText,

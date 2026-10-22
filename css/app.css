@@ -226,6 +226,9 @@ button:disabled,
 
 .control-row + .control-row { margin-top: var(--control-gap); }
 .control-row > button { flex-shrink: 0; }
+.checklist-control { margin: 12px 0; }
+.checklist-control label { display: block; margin-bottom: 4px; font-size: 12px; }
+.checklist-control select { width: 100%; min-width: 0; }
 .edit-form .field-time { flex: 1 1 76px; width: 76px; }
 
 .log-form-inline .field-time {

@@ -27,6 +27,10 @@
       labels: [{ id: "release", name: "Release", color: "purple" }],
       entries: [],
       limitMinutes: 4800,
+      checklists: [
+        { id: "subtasks", name: "Sub-tasks", pos: 1, checkItems: [{ idCard: "design" }, { idCard: "api" }] },
+        { id: "dependencies", name: "Depends on", pos: 2, checkItems: [{ idCard: "bug" }] }
+      ],
       kids: ["design", "api"]
     },
     {
@@ -122,8 +126,14 @@
     onLimit: function (minutes) {
       const card = selected();
       card.limitMinutes = minutes;
-      if (minutes == null) card.kids = null;
-      else if (card.id === "epic") card.kids = ["design", "api"];
+      paintCard();
+      paintReport();
+      return Promise.resolve();
+    },
+    onChecklist: function (id) {
+      const card = selected();
+      card.subtasksChecklistId = id || null;
+      card.kids = window.TimeEpic.inspectChecklists(card.checklists, card.id, null, null, card.subtasksChecklistId).childIds;
       paintCard();
       paintReport();
       return Promise.resolve();
@@ -175,6 +185,9 @@
       entries: window.TimeModel.sortEntries(card.entries),
       limitMinutes: card.limitMinutes,
       kidsKnown: true,
+      checklists: card.checklists || [],
+      hasChecklists: !!(card.checklists && card.checklists.length),
+      subtasksChecklistId: card.subtasksChecklistId || null,
       unlinkedCount: card.id === "epic" ? 1 : 0,
       warning: "",
       error: "",

@@ -8,7 +8,8 @@ import { transform } from "esbuild";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
-const budgets = { index: 33000, card: 48000, report: 41000, settings: 22000, "auth-complete": 2000, preview: 46000 };
+// Includes per-card checklist selection and its card/preview controls.
+const budgets = { index: 34000, card: 52000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 48000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.

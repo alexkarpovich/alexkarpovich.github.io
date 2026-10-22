@@ -164,12 +164,13 @@
           };
           visited.add(id);
           const nested = descendants(child, depth + 1);
-          const isEpic = child.limitMinutes != null || !!(child.kids && child.kids.length);
+          const isEpic = child.limitMinutes != null || child.hasSubtasks || !!(child.kids && child.kids.length);
           const entries = isEpic ? [] : (child.entries || []).filter(function (entry) { return entryInRange(entry, from, to); });
           entries.forEach(function (entry) { periodEntries.push(entry); });
           const own = entries.reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
           const minutes = own + nested.reduce(function (sum, item) { return sum + item.minutes; }, 0);
-          return { id: id, name: child.name, url: child.url || "", minutes: minutes, missing: false, depth: depth, children: nested };
+          const missing = (isEpic && !Array.isArray(child.kids)) || nested.some(function (item) { return item.missing; });
+          return { id: id, name: child.name, url: child.url || "", minutes: minutes, missing: missing, depth: depth, children: nested };
         });
       }
       const children = descendants(card, 1);

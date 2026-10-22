@@ -83,6 +83,19 @@
       });
     const limitSummary = h("div", { class: "limit-summary", hidden: true }, [limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
+    const checklistSelect = h("select", { id: "subtasks-checklist", "aria-label": "Subtasks checklist" });
+    const checklistError = h("div", { class: "error", role: "alert" });
+    const checklistControl = h("div", { class: "checklist-control", hidden: true }, [
+      h("label", { for: "subtasks-checklist" }, "Subtasks checklist"), checklistSelect, checklistError
+    ]);
+    checklistSelect.addEventListener("change", function () {
+      const selected = checklistSelect.value;
+      checklistError.textContent = "";
+      handlers.onChecklist(selected).catch(function (error) {
+        checklistSelect.value = latestModel.subtasksChecklistId || "";
+        checklistError.textContent = error.message || "Could not change the checklist.";
+      });
+    });
 
     const form = h("form", { class: "log-form" }, [
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
@@ -109,7 +122,7 @@
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
       limitError
     ]);
-    const epicHelp = helpTip("Child cards = checklist items with a trello.com/c/… link to another card on this board. Time on this card is excluded.");
+    const epicHelp = helpTip("Child cards come from the selected subtasks checklist. By default, the first checklist is used. Link cards on this board with trello.com/c/… URLs. Time on this card is excluded.");
     const epicSection = h("section", { class: "epic", hidden: true }, [
       h("div", { class: "epic-header" }, [
         h("h2", { class: "epic-heading" }, ["Epic limit", epicHelp]),
@@ -117,6 +130,7 @@
       ]),
       limitSummary,
       limitForm,
+      checklistControl,
       epicBody
     ]);
 
@@ -277,6 +291,7 @@
       const settings = model.settings;
       const cardChanged = model.cardId !== cardId;
       if (cardChanged) {
+        checklistError.textContent = "";
         editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
@@ -285,7 +300,7 @@
         limitError.textContent = "";
         closeEdit();
       }
-      const showEpic = !!(model.children.length || model.limitMinutes != null || model.hasChecklists);
+      const showEpic = !!(model.children.length || model.limitMinutes != null || model.hasChecklists || model.subtasksChecklistId);
       if (cardChanged || showEpic !== epicMode) setLogOpen(!showEpic);
       epicMode = showEpic;
 
@@ -302,6 +317,18 @@
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
       limitButton.disabled = !!model.saving || !canWrite;
       clearLimit.disabled = !!model.saving || !canWrite;
+      const checklists = model.checklists || [];
+      checklistControl.hidden = !checklists.length && !model.subtasksChecklistId;
+      clear(checklistSelect);
+      checklistSelect.appendChild(h("option", { value: "" }, "Automatic — first checklist" + (checklists[0] ? ": " + (checklists[0].name || "Checklist 1") : "")));
+      checklists.forEach(function (checklist, index) {
+        if (checklist.id) checklistSelect.appendChild(h("option", { value: checklist.id }, (index + 1) + ". " + (checklist.name || "Checklist")));
+      });
+      if (model.subtasksChecklistId && !checklists.some(function (list) { return list.id === model.subtasksChecklistId; })) {
+        checklistSelect.appendChild(h("option", { value: model.subtasksChecklistId }, "Selected checklist unavailable"));
+      }
+      checklistSelect.value = model.subtasksChecklistId || "";
+      checklistSelect.disabled = !!model.saving || !!model.childrenLoading || !canWrite;
       paintLimit(model);
 
       if (model.error) {
@@ -385,6 +412,10 @@
       clear(epicBody);
       if (model.childrenLoading) {
         epicBody.appendChild(h("p", { class: "hint", role: "status" }, "Loading child cards…"));
+        return;
+      }
+      if (model.missingChecklist) {
+        epicBody.appendChild(h("p", { class: "hint", role: "status" }, "The selected subtasks checklist was not found. Select another checklist or switch to Automatic."));
         return;
       }
       if (model.limitMinutes == null) {

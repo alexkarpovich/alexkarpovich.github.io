@@ -106,18 +106,22 @@
     const states = cardList.map(function (card) {
       return window.TimeModel.decode(boardTimes.timeById.get(card.id));
     });
-    const needsLists = cardList.some(function (card) {
-      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
+    function inspect(card, checklists, index) {
+      return window.TimeEpic.inspectChecklists(checklists, card.id, shortLinks, nameIndex,
+        boardTimes.unreadableIds.has(card.id) ? false : states[index].subtasksChecklistId);
+    }
+    const needsLists = cardList.some(function (card, index) {
+      const fromClient = inspect(card, card.checklists, index);
       return window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
     });
     const remote = needsLists ? await loadRemoteChecklists() : { map: null, needsAuth: false };
     const cardsOut = cardList.map(function (card, index) {
       const state = states[index];
-      const fromClient = window.TimeEpic.inspectChecklists(card.checklists, card.id, shortLinks, nameIndex);
+      const fromClient = inspect(card, card.checklists, index);
       const needsRemote = window.TimeEpic.needsRemoteChecklists(fromClient, card.checklists);
       let kids = fromClient.complete && !needsRemote ? fromClient.childIds : null;
       if (remote.map && remote.map.has(card.id)) {
-        const parsed = window.TimeEpic.inspectChecklists(remote.map.get(card.id), card.id, shortLinks, nameIndex);
+        const parsed = inspect(card, remote.map.get(card.id), index);
         kids = parsed.complete ? parsed.childIds : null;
       }
       return {
@@ -130,12 +134,13 @@
         }),
         entries: state.entries,
         limitMinutes: state.limitMinutes,
+        hasSubtasks: !!state.subtasksChecklistId || !!((remote.map && remote.map.get(card.id) || card.checklists || []).length),
         kids: kids,
         missing: boardTimes.unreadableIds.has(card.id)
       };
     });
 
-    const unknown = cardsOut.filter(function (card) { return card.limitMinutes != null && !Array.isArray(card.kids); });
+    const unknown = cardsOut.filter(function (card) { return (card.limitMinutes != null || card.hasSubtasks) && !Array.isArray(card.kids); });
     let message = "Report includes only visible cards in open lists; archived cards are excluded.";
     if (boardTimes.unreadableIds.size) {
       message += " Some time logs could not be read; totals may be incomplete. Reload the report to retry.";

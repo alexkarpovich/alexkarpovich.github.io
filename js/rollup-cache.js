@@ -19,17 +19,18 @@
     return permissions.board === "write" || permissions.card === "write";
   }
   function signature(card) {
-    const text = JSON.stringify(card.checklists == null ? null : card.checklists.map(function (list) {
+    const selected = epic.selectChecklists(card.checklists, card.subtasksChecklistId);
+    const text = JSON.stringify([card.subtasksChecklistId || null, selected == null ? null : selected.map(function (list) {
       return [list.id || "", Array.isArray(list.checkItems) ? list.checkItems.map(function (item) {
         return [item.id || "", item.name || "", epic.cardIdFromCheckItem(item)];
       }) : null];
-    }));
+    })]);
     let hash = 2166136261;
     for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
     return (hash >>> 0).toString(36);
   }
   function valid(cache, card) {
-    if (!cache || cache.v !== 1 || cache.dirty || cache.s !== signature(card) ||
+    if (!cache || cache.v !== 2 || cache.dirty || cache.s !== signature(card) ||
       !Number.isFinite(cache.t) || Date.now() - cache.t < 0 || Date.now() - cache.t >= TTL ||
       !Array.isArray(cache.c) || !Array.isArray(cache.d)) return false;
     const ids = new Set();
@@ -49,7 +50,8 @@
     const cards = cache.c.map(function (row) { return { id: row[0], name: row[1], url: row[2] }; });
     return {
       cached: true,
-      inspection: { complete: true, childIds: cards.map(function (card) { return card.id; }), unlinkedCount: cache.u || 0, checklists: card.checklists },
+      inspection: { complete: true, childIds: cards.map(function (card) { return card.id; }), unlinkedCount: cache.u || 0,
+        checklists: epic.selectChecklists(card.checklists, card.subtasksChecklistId), allChecklists: card.checklists },
       board: { boardCards: cards, unreadableIds: new Set(), timeById: new Map(),
         totalsById: new Map(cache.c.map(function (row) { return [row[0], { minutes: row[3], entries: [], missing: false }]; })),
         entries: cache.d.map(function (row) { return { ymd: row[0], minutes: row[1] }; }) },
@@ -68,7 +70,7 @@
       total.entries.forEach(function (entry) { days.set(entry.ymd, (days.get(entry.ymd) || 0) + entry.minutes); });
       return [id, item && item.name || "Unavailable card", item && item.url || "", total.minutes];
     });
-    return { v: 1, t: Date.now(), s: signature(card), u: related.inspection.unlinkedCount || 0,
+    return { v: 2, t: Date.now(), s: signature(card), u: related.inspection.unlinkedCount || 0,
       c: rows, d: Array.from(days).sort(function (a, b) { return a[0] - b[0]; }) };
   }
 
@@ -90,7 +92,7 @@
     }
   }
   async function invalidate(client, id, token) {
-    if (await write(client, id, { [KEY]: { v: 1, dirty: token } })) return true;
+    if (await write(client, id, { [KEY]: { v: 2, dirty: token } })) return true;
     // A full card can still discard its old derived value.
     try {
       if (await client.get(id, "shared", KEY, null)) await client.remove(id, "shared", KEY);
@@ -102,16 +104,24 @@
     let cards = await client.cards("id", "name", "url", "shortLink", "checklists");
     const existing = (cards || []).find(function (item) { return item.id === card.id; });
     cards = (cards || []).filter(function (item) { return item.id !== card.id; }).concat([Object.assign({}, existing, card)]);
-    const sourceById = new Map(cards.map(function (item) { return [item.id, item]; }));
     let credentials;
     const getRest = function () {
       if (!credentials) credentials = runtime.restCredentials(client, appKey);
       return credentials;
     };
+    async function withChecklistChoice(item) {
+      if (item.subtasksChecklistId !== undefined) return item;
+      // Empty ordinary cards need no additional read; grouping cards need their saved choice.
+      if (Array.isArray(item.checklists) && !item.checklists.length) return item;
+      const raw = await runtime.readSharedTime(client, item.id, getRest, model);
+      return Object.assign({}, item, { subtasksChecklistId: raw === undefined ? false : model.decode(raw).subtasksChecklistId });
+    }
+    cards = await runtime.mapPool(cards, 8, withChecklistChoice);
+    const sourceById = new Map(cards.map(function (item) { return [item.id, item]; }));
     let links = new Map(cards.map(function (item) { return [item.shortLink, item.id]; }));
     let names = epic.uniqueNameIndex(cards);
     const incomplete = cards.some(function (item) {
-      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names);
+      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names, item.subtasksChecklistId);
       return epic.needsRemoteChecklists(parsed, item.checklists);
     });
     const remoteIds = new Set();
@@ -132,11 +142,20 @@
         } catch (error) { /* Partial metadata remains unknown; live reads can retry individual cards. */ }
       }
     }
+    // A board REST response can reveal checklists omitted entirely by the SDK.
+    if (remoteIds.size) {
+      cards = await runtime.mapPool(cards, 8, withChecklistChoice);
+      cards.forEach(function (item) {
+        sourceById.set(item.id, Object.assign({}, sourceById.get(item.id), { subtasksChecklistId: item.subtasksChecklistId }));
+      });
+    }
     const inspections = new Map(), parents = new Map();
     cards.forEach(function (item) {
-      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names);
+      const parsed = epic.inspectChecklists(item.checklists, item.id, links, names, item.subtasksChecklistId);
       if (parsed.complete && (remoteIds.has(item.id) || !epic.needsRemoteChecklists(parsed, item.checklists))) {
-        inspections.set(item.id, Object.assign({}, parsed, { checklists: item.checklists,
+        inspections.set(item.id, Object.assign({}, parsed, {
+          subtasksChecklistId: item.subtasksChecklistId,
+          checklists: epic.selectChecklists(item.checklists, item.subtasksChecklistId), allChecklists: item.checklists,
           remoteChecklistsFetched: remoteIds.has(item.id) }));
       }
       (parsed.childIds || []).forEach(function (id) {
@@ -178,6 +197,7 @@
     return found;
   }
   async function prepareChange(client, card, appKey, shared) {
+    card = Object.assign({}, card, { subtasksChecklistId: model.decode(scope(shared).time).subtasksChecklistId });
     let graph;
     try { graph = await graphFor(client, card, appKey); }
     catch (error) {
@@ -214,6 +234,10 @@
   }
   async function finishChange(client, transaction, appKey, changedTime) {
     if (transaction.graph.failed) throw new Error("Parent relationships could not be refreshed.");
+    if (arguments.length >= 4 && model.decode(changedTime).subtasksChecklistId !== transaction.card.subtasksChecklistId) {
+      transaction.card = Object.assign({}, transaction.card, { subtasksChecklistId: model.decode(changedTime).subtasksChecklistId });
+      transaction.graph = await graphFor(client, transaction.card, appKey);
+    }
     const graph = transaction.graph, reads = new Map(), results = new Map(), touched = new Set();
     if (arguments.length >= 4) reads.set(transaction.card.id, Promise.resolve(changedTime));
     const options = { cards: function () { return Promise.resolve(graph.cards); }, getRest: graph.getRest,
@@ -245,6 +269,7 @@
   }
   async function loadCardChildren(client, card, appKey, options) {
     const opts = options || {}, shared = scope(opts.shared);
+    card = Object.assign({}, card, { subtasksChecklistId: model.decode(shared.time).subtasksChecklistId });
     if (!opts.force && !failedWrites.has(card.id) && valid(shared[KEY], card)) return hydrate(shared[KEY], card);
     const ctx = client.getContext && client.getContext();
     const key = (ctx && ctx.board || "") + ":" + card.id;

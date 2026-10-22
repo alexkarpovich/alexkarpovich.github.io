@@ -301,3 +301,43 @@ test("hidden checklist items are resolved in one board request and warm opens sk
   assert.equal((await cache.loadCardChildren(h.client, h.card("root"), "key", options())).cached, true);
   assert.equal(requests, 1);
 });
+
+test("switching a nested checklist refreshes ancestors and removes old backlinks", async () => {
+  const h = fixture();
+  h.card("a").checklists[0].id = "original";
+  h.card("a").checklists.push({ id: "alternate", checkItems: [{ idCard: h.id("task") }] });
+  await h.load();
+  assert.equal(h.total("root"), 90);
+  const tx = await cache.prepareChange(h.client, h.card("a"), "", h.data.get(h.id("a")));
+  const changed = { ...h.data.get(h.id("a")).time, sc: "alternate" };
+  h.data.get(h.id("a")).time = changed;
+  await cache.finishChange(h.client, tx, "", changed);
+  assert.equal(h.total("root"), 60);
+  assert.equal(h.total("a"), 60);
+  assert.equal(h.data.get(h.id("other")).rollupLinks, undefined);
+  assert.equal((await h.load("a")).cached, true);
+  h.card("a").checklists[1].name = "Renamed";
+  h.card("a").checklists.reverse();
+  assert.equal((await h.load("a")).cached, true, "manual ID is independent of order and name");
+  h.card("a").checklists.shift();
+  const missing = await h.load("a");
+  assert.equal(missing.inspection.complete, false);
+  assert.equal(missing.inspection.missingChecklist, true);
+  assert.ok(h.data.get(h.id("root")).rollup.dirty, "an incomplete ancestor must not reuse the old total");
+});
+
+test("automatic checklist reordering invalidates totals while unrelated edits keep a warm cache", async () => {
+  const h = fixture();
+  h.card("root").checklists[0].id = "first";
+  h.card("root").checklists[0].pos = 10;
+  h.card("root").checklists.push({ id: "second", pos: 20, checkItems: [{ idCard: h.id("other") }] });
+  await h.load();
+  assert.equal(h.total("root"), 90);
+  h.card("root").checklists[1].name = "Renamed dependency list";
+  assert.equal((await h.load()).cached, true);
+  h.card("root").checklists[1].pos = 5;
+  await h.load();
+  assert.equal(h.total("root"), 30);
+  h.data.get(h.id("root")).rollup.v = 1;
+  assert.equal((await h.load()).cached, undefined, "old all-checklist caches are rebuilt");
+});

@@ -73,6 +73,7 @@
       onUpdate: onUpdate,
       onDelete: onDelete,
       onLimit: onLimit,
+      onChecklist: onChecklist,
       onAuthorize: onAuthorize
     });
     if (window.ResizeObserver) {
@@ -198,6 +199,18 @@
     });
   }
 
+  function onChecklist(id) {
+    return withSaving(async function () {
+      if (id && !(current.checklists || []).some(function (list) { return list.id === id; })) {
+        throw new Error("This checklist is no longer available. Reopen the card to retry.");
+      }
+      return mutate(function (state) {
+        state.subtasksChecklistId = id || null;
+        return state;
+      });
+    });
+  }
+
   async function mutate(change) {
     const card = await t.card("id");
     const shared = await t.get(card.id, "shared");
@@ -277,6 +290,9 @@
       children: [],
       unlinkedCount: 0,
       hasChecklists: !!(card.checklists && card.checklists.length),
+      checklists: window.TimeEpic.orderedChecklists(card.checklists),
+      subtasksChecklistId: state.subtasksChecklistId,
+      missingChecklist: !!state.subtasksChecklistId && Array.isArray(card.checklists) && !card.checklists.some(function (list) { return list.id === state.subtasksChecklistId; }),
       buildLabel: buildLabel(),
       warning: rollupNotice,
       error: "",
@@ -284,7 +300,7 @@
       saving: saving,
       storageRatio: window.TimeModel.storageRatio(state)
     };
-    if (Array.isArray(card.checklists) && card.checklists.length === 0 && !(raw && raw.rollup)) return base;
+    if (!state.subtasksChecklistId && Array.isArray(card.checklists) && card.checklists.length === 0 && !(raw && raw.rollup)) return base;
 
     // The time form and its entries are usable while optional epic data loads.
     current = Object.assign({}, base, { childrenLoading: true });
@@ -346,6 +362,8 @@
       children: children,
       estimatedFinish: estimatedFinish,
       unlinkedCount: inspection.unlinkedCount || 0,
+      checklists: window.TimeEpic.orderedChecklists(inspection.allChecklists || card.checklists),
+      missingChecklist: !!inspection.missingChecklist,
       hasChecklists: !!(inspection.checklists && inspection.checklists.length) || !!(card.checklists && card.checklists.length),
       debugEpic: debugEpic,
       saving: saving

@@ -49,7 +49,10 @@ minutes = 60;
 assert.equal((await capabilities["card-badges"](client))[0].text, "1h", "completed results must not be cached");
 
 // Exercise the persistent-cache path in the shipped, minified connector too.
-const epicCard = { id: "built-epic", name: "Epic", checklists: [{ checkItems: [{ idCard: "built-task" }] }] };
+const epicCard = { id: "built-epic", name: "Epic", checklists: [
+  { id: "tasks", pos: 10, checkItems: [{ idCard: "built-task" }] },
+  { id: "dependencies", pos: 20, checkItems: [{ idCard: "unavailable-dependency" }] }
+] };
 const taskCard = { id: "built-task", name: "Task", checklists: [] };
 const shared = new Map([
   [epicCard.id, { time: { lim: 120, e: [] } }],
@@ -72,5 +75,7 @@ await window.TimeRollupCache.loadCardChildren(cacheClient, epicCard, "", { share
 const beforeCachedBadge = scans;
 assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "1h 30m left");
 assert.equal(scans, beforeCachedBadge, "a cached epic badge must not scan the board");
+shared.get(epicCard.id).time.sc = "dependencies";
+assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "limit 2h", "manual selection must reject the previous automatic cache and keep missing dependencies unknown");
 
 console.log("Production checks passed: resource hashes, budgets, script order, connector registration, fresh logs and persisted epic totals.");
