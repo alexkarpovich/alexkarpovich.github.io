@@ -94,7 +94,7 @@
       "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": "child-card-suggestions",
       "aria-label": "Child card name or link", autocomplete: "off", required: true
     });
-    const linkButton = h("button", { type: "submit", class: "button" }, "Add");
+    const linkButton = h("button", { type: "submit", class: "button mod-primary" }, "Add");
     const linkError = h("div", { class: "error", role: "alert" });
     const addChild = h("button", { type: "button", class: "button-link add-child", "aria-expanded": "false", "aria-controls": "child-card-form", onclick: function () {
       addingChild = true;
@@ -164,7 +164,6 @@
     linkInput.addEventListener("blur", function () { hideSuggestions(); });
     const cancelChild = h("button", { type: "button", class: "button-link", onclick: closeLinkForm }, "Cancel");
     const linkForm = h("form", { id: "child-card-form", class: "link-form", hidden: true }, [
-      h("label", { for: "epic-card-link", class: "muted" }, "Child cards"),
       h("div", { class: "control-row" }, [h("div", { class: "child-picker" }, [linkInput, suggestions]), linkButton, cancelChild])
     ]);
     function paintLinkForm() {

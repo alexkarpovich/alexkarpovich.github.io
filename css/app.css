@@ -85,7 +85,8 @@ button, input, select { font: inherit; color: inherit; }
   vertical-align: middle;
 }
 
-.trello-power-up .limit-form .control-row .button-link {
+.trello-power-up .limit-form .control-row .button-link,
+.trello-power-up .link-form .control-row .button-link {
   display: inline-flex;
   align-items: center;
   height: var(--control-h);
@@ -117,7 +118,12 @@ a:hover { text-decoration: underline; }
   min-width: 0;
 }
 
-.trello-power-up input:not([type="checkbox"]):focus,
+.trello-power-up input:focus,
+.panel input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
 .trello-power-up select:focus,
 .trello-power-up button:focus-visible {
   outline: 2px solid var(--ds-border-focused, #85b8ff);
@@ -227,7 +233,7 @@ button:disabled,
 .control-row + .control-row { margin-top: var(--control-gap); }
 .control-row > button { flex-shrink: 0; }
 .link-form { margin-top: 12px; }
-.link-form label, .limit-form label { display: block; margin-bottom: 4px; font-size: 12px; }
+.limit-form label { display: block; margin-bottom: 4px; font-size: 12px; }
 .link-form input { flex: 1; min-width: 0; }
 .child-name { min-width: 0; overflow-wrap: anywhere; }
 .child-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
