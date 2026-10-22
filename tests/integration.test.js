@@ -88,8 +88,9 @@ test("owned card links persist without limits and ignore native checklists", asy
   const task = { id: "task", shortLink: "task", name: "Task", url: "https://trello.com/c/task" };
   const second = { id: "second", shortLink: "second", name: "Second", url: "https://trello.com/c/second" };
   const data = new Map([[root.id, {}], [second.id, {}], [task.id, { time: { e: [["work", 20261020, 30, 0]] } }]]);
+  let scans = 0;
   const h = cardHarness({
-    card: async () => root, cards: async () => [root, task, second],
+    card: async () => root, cards: async () => { scans++; return [root, task, second]; },
     get: async (id, visibility, key, fallback) => {
       if (id === "board") return fallback;
       const raw = data.get(id === "card" ? root.id : id) || {};
@@ -100,7 +101,11 @@ test("owned card links persist without limits and ignore native checklists", asy
   });
   await h.render();
   assert.equal(h.latest().children.length, 0);
+  assert.deepEqual((await h.handlers().onCardSearch("ta")).map(card => card.id), [task.id]);
+  assert.deepEqual((await h.handlers().onCardSearch("SEC")).map(card => card.id), [second.id]);
+  assert.equal(scans, 1, "typing multiple queries reuses board metadata");
   await h.handlers().onLinkAdd(task.url);
+  assert.deepEqual(await h.handlers().onCardSearch("ta"), [], "already linked cards are excluded");
   assert.deepEqual(data.get(root.id).time.lc, [task.id]);
   assert.equal(h.latest().children[0].minutes, 30);
   assert.equal(h.latest().limitMinutes, null);
@@ -110,7 +115,7 @@ test("owned card links persist without limits and ignore native checklists", asy
   await h.handlers().onAdd(fields);
   await h.handlers().onLimit(120);
   assert.deepEqual(data.get(root.id).time.lc, [task.id]);
-  await h.handlers().onLinkAdd(second.url);
+  await h.handlers().onLinkAdd("Second");
   await h.handlers().onLinkReorder([second.id, task.id]);
   assert.deepEqual(data.get(root.id).time.lc, [second.id, task.id]);
   assert.deepEqual(h.latest().children.map(child => child.id), [second.id, task.id]);
@@ -119,6 +124,11 @@ test("owned card links persist without limits and ignore native checklists", asy
   assert.ok(h.updates().slice(beforeRefresh).every(value => !value.childrenLoading), "background refresh never replaces children with a loader");
   await assert.rejects(h.handlers().onLinkReorder([task.id]), /Child cards changed/);
   await assert.rejects(h.handlers().onLinkReorder([task.id, task.id]), /Child cards changed/);
+  await h.handlers().onLinkRemove(second.id);
+  second.name = task.name;
+  await assert.rejects(h.handlers().onLinkAdd(task.name), /Several cards/);
+  await h.handlers().onLinkAdd(task.name, second.id);
+  assert.ok(data.get(root.id).time.lc.includes(second.id), "autocomplete selection identifies duplicate names by ID");
   await h.handlers().onLinkRemove(second.id);
   h.writable(false);
   await assert.rejects(h.handlers().onLinkReorder([task.id]), /read-only/);

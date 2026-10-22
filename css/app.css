@@ -412,8 +412,11 @@ button:disabled,
 
 .entry-list, .child-list { max-height: 260px; overflow: auto; margin-top: 4px; }
 .entry {
-  padding: 5px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
 }
 .entry-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .entry-main {
@@ -475,29 +478,11 @@ button:disabled,
   border-radius: var(--control-radius);
 }
 
-.epic-header { display: flex; align-items: center; gap: 8px; }
-.epic .epic-heading { margin: 0; flex-shrink: 0; }
-.epic-divider { display: flex; align-items: center; flex: 1; min-width: 0; gap: 6px; }
-.epic-divider::before, .epic-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-.trello-power-up .log-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--control-radius);
-  background: var(--btn-bg);
-  color: var(--muted);
-  cursor: pointer;
-}
-.trello-power-up .log-toggle:hover { background: var(--input-bg); color: var(--text); }
-.log-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-.log-toggle svg { width: 18px; height: 18px; }
-.log-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
-.epic-heading { display: flex; align-items: center; gap: 6px; }
+.card-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.trello-power-up .card-tabs button, .panel .card-tabs button { height: 34px; min-width: 64px; margin: 0 0 -1px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 3px 3px 0 0; background: transparent; box-shadow: none; color: var(--muted); cursor: pointer; }
+.trello-power-up .card-tabs button[aria-selected="true"], .panel .card-tabs button[aria-selected="true"] { border-bottom-color: var(--blue); color: var(--text); font-weight: 600; }
+.card-tabs button:hover { background: var(--btn-bg); }
+.card-tabs button:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
 .limit-summary, .estimate-line { display: flex; align-items: center; gap: 6px; }
 .limit-summary { margin-bottom: 4px; font-size: 13px; }
 .help-tip { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--muted); border-radius: 50%; font-size: 10px; line-height: 1; cursor: help; color: var(--muted); text-transform: none; }
@@ -582,12 +567,15 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 }
 
 .add-child { margin-top: 8px; }
-.epic-progress { position: relative; overflow: hidden; isolation: isolate; margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--btn-bg); }
-.epic-progress-fill, .epic-progress-over { position: absolute; inset: 0 auto 0 0; z-index: -1; background: color-mix(in srgb, var(--green) 25%, transparent); }
-.epic-progress-over { inset: 0 0 0 auto; border-left: 2px solid var(--red); background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--red) 16%, transparent) 6px 12px), color-mix(in srgb, var(--red) 18%, transparent); }
-.epic-progress-labels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 9px 10px; font-size: 13px; }
-.epic-progress-labels > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
-.progress-caption { font-size: 11px; }
+.epic-progress { margin: 10px 0 8px; }
+.epic-progress-track { position: relative; height: 6px; overflow: hidden; border-radius: 99px; background: var(--btn-bg); }
+.epic-progress-fill, .epic-progress-over { position: absolute; inset: 0 auto 0 0; background: #61bd4f; }
+.epic-progress-over { inset: 0 0 0 auto; border-left: 2px solid var(--input-bg); background: repeating-linear-gradient(135deg, #eb5a46 0 4px, #bf4030 4px 8px); }
+.epic-progress-labels { display: grid; grid-template-columns: 1fr 1fr; align-items: end; gap: 12px; padding-bottom: 10px; font-size: 13px; }
+.epic-progress-labels > span { position: relative; display: flex; flex-direction: column; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--input-bg); overflow-wrap: anywhere; }
+.epic-progress-labels > span::after { content: ""; position: absolute; bottom: -5px; left: 12px; width: 8px; height: 8px; background: var(--input-bg); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
+.epic-progress-labels > .progress-remaining::after { left: auto; right: 12px; }
+.progress-caption { font-size: 11px; color: var(--muted); }
 .progress-remaining { text-align: right; }
 .is-over .progress-remaining { color: var(--red); }
 .child-name { flex: 1; }
@@ -596,3 +584,13 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 .child.is-dragging { opacity: 0.45; }
 .child.drop-before { box-shadow: 0 -2px var(--blue); }
 .child.drop-after { box-shadow: 0 2px var(--blue); }
+
+.child-picker { flex: 1; min-width: 0; }
+.child-picker input { width: 100%; }
+.link-form .control-row { align-items: flex-start; }
+.child-suggestions { margin-top: 4px; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--input-bg); }
+.child-suggestion { padding: 7px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.child-suggestion > span, .child-suggestion > small { display: block; }
+.child-suggestion > small { font-size: 10px; }
+.child-suggestion:hover, .child-suggestion[aria-selected="true"] { background: var(--btn-bg); outline: 1px solid var(--blue); outline-offset: -1px; }
+.child-suggestions .hint { padding: 6px 8px; }

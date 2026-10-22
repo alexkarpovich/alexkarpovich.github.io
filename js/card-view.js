@@ -90,8 +90,9 @@
     const limitSummary = h("div", { class: "limit-summary", hidden: true }, [h("span", { class: "muted" }, "Limit"), limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
     const linkInput = h("input", {
-      id: "epic-card-link", name: "card-link", type: "url", placeholder: "https://trello.com/c/…",
-      "aria-label": "Child card link", autocomplete: "off", required: true
+      id: "epic-card-link", name: "card-link", type: "text", placeholder: "Card name or Trello URL", role: "combobox",
+      "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": "child-card-suggestions",
+      "aria-label": "Child card name or link", autocomplete: "off", required: true
     });
     const linkButton = h("button", { type: "submit", class: "button" }, "Add");
     const linkError = h("div", { class: "error", role: "alert" });
@@ -99,18 +100,72 @@
       addingChild = true;
       paintLinkForm();
       linkInput.focus();
-    } }, "Add child card");
+    } }, "+ add child card");
     function closeLinkForm() {
       addingChild = false;
       linkInput.value = "";
+      selectedChild = null;
+      hideSuggestions();
       linkError.textContent = "";
       paintLinkForm();
       addChild.focus();
     }
+    let selectedChild = null;
+    let searchVersion = 0;
+    let searchResults = [];
+    let activeSuggestion = -1;
+    const suggestions = h("div", { id: "child-card-suggestions", class: "child-suggestions", role: "listbox", hidden: true });
+    function hideSuggestions() {
+      searchVersion++;
+      suggestions.hidden = true;
+      linkInput.setAttribute("aria-expanded", "false");
+      linkInput.removeAttribute("aria-activedescendant");
+      activeSuggestion = -1;
+    }
+    function chooseChild(child) {
+      selectedChild = child;
+      linkInput.value = child.name;
+      hideSuggestions();
+      linkInput.focus();
+    }
+    function highlightSuggestion(index) {
+      activeSuggestion = index;
+      suggestions.querySelectorAll('[role="option"]').forEach(function (node, position) {
+        node.setAttribute("aria-selected", String(position === index));
+        if (position === index) { linkInput.setAttribute("aria-activedescendant", node.id); node.scrollIntoView({ block: "nearest" }); }
+      });
+    }
+    linkInput.addEventListener("input", async function () {
+      selectedChild = null;
+      linkError.textContent = "";
+      hideSuggestions();
+      const query = linkInput.value.trim();
+      if (!query || /^(?:https?:|trello\.)/i.test(query) || !handlers.onCardSearch) return;
+      const version = searchVersion, searchingCard = latestModel.cardId;
+      try {
+        const results = await handlers.onCardSearch(query);
+        if (version !== searchVersion || !addingChild || latestModel.cardId !== searchingCard) return;
+        searchResults = results;
+        clear(suggestions);
+        results.forEach(function (child, index) {
+          suggestions.appendChild(h("div", {
+            id: "child-suggestion-" + index, role: "option", "aria-selected": "false", class: "child-suggestion",
+            onmousedown: function (event) { event.preventDefault(); },
+            onclick: function () { if (!latestModel.saving) chooseChild(child); }
+          }, [h("span", null, child.name), h("small", { class: "muted" }, child.url || child.id)]));
+        });
+        if (!results.length) suggestions.appendChild(h("p", { class: "hint", role: "status" }, "No matching child cards."));
+        suggestions.hidden = false;
+        linkInput.setAttribute("aria-expanded", "true");
+      } catch (error) {
+        if (version === searchVersion && latestModel.cardId === searchingCard) linkError.textContent = "Could not search cards. Try again or paste a Trello URL.";
+      }
+    });
+    linkInput.addEventListener("blur", function () { hideSuggestions(); });
     const cancelChild = h("button", { type: "button", class: "button-link", onclick: closeLinkForm }, "Cancel");
     const linkForm = h("form", { id: "child-card-form", class: "link-form", hidden: true }, [
       h("label", { for: "epic-card-link", class: "muted" }, "Child cards"),
-      h("div", { class: "control-row" }, [linkInput, linkButton, cancelChild])
+      h("div", { class: "control-row" }, [h("div", { class: "child-picker" }, [linkInput, suggestions]), linkButton, cancelChild])
     ]);
     function paintLinkForm() {
       const writable = latestModel && latestModel.canWrite !== false;
@@ -120,13 +175,20 @@
       linkForm.hidden = !writable || !addingChild;
     }
     linkInput.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !latestModel.saving) { event.preventDefault(); closeLinkForm(); }
+      if (latestModel.saving) return;
+      if (!suggestions.hidden && searchResults.length && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        highlightSuggestion(activeSuggestion < 0 ? (event.key === "ArrowDown" ? 0 : searchResults.length - 1) : (activeSuggestion + (event.key === "ArrowDown" ? 1 : searchResults.length - 1)) % searchResults.length);
+      } else if (event.key === "Enter" && !suggestions.hidden && activeSuggestion >= 0) {
+        event.preventDefault(); chooseChild(searchResults[activeSuggestion]);
+      } else if (event.key === "Escape") { event.preventDefault(); closeLinkForm(); }
     });
     linkForm.addEventListener("submit", function (event) {
       event.preventDefault();
       const savingCard = latestModel.cardId;
       linkError.textContent = "";
-      handlers.onLinkAdd(linkInput.value).then(function () {
+      hideSuggestions();
+      handlers.onLinkAdd(linkInput.value, selectedChild ? selectedChild.id : null).then(function () {
         if (latestModel.cardId === savingCard) closeLinkForm();
       }).catch(function (error) {
         if (latestModel.cardId === savingCard) linkError.textContent = error.message || "Could not add child card.";
@@ -137,34 +199,19 @@
       h("div", { class: "log-form-inline" }, [duration, note, addButton]),
       formError
     ]);
-    const logPanel = h("div", { class: "log-panel", id: "card-log-panel" }, [form, addHint, editHost, total, list]);
-    const logToggle = h("button", {
-      type: "button", class: "log-toggle", "aria-controls": "card-log-panel", "aria-expanded": "true",
-      "aria-label": "Hide time entries", title: "Hide time entries",
-      onclick: function () { setLogOpen(logPanel.hidden); }
-    });
-    logToggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"/></svg>';
-    let epicMode = false;
-
-    function setLogOpen(open) {
-      logPanel.hidden = !open;
-      logToggle.setAttribute("aria-expanded", String(open));
-      const label = open ? "Hide time entries" : "Show time entries";
-      logToggle.setAttribute("aria-label", label);
-      logToggle.title = label;
-    }
+    const logPanel = h("div", {
+      class: "log-panel", id: "card-log-panel", role: "tabpanel", "aria-labelledby": "task-tab", tabindex: "0"
+    }, [form, addHint, editHost, total, list]);
+    let activeTab = "";
 
     const limitForm = h("form", { class: "limit-form" }, [
       h("label", { for: "epic-limit", class: "muted" }, "Limit"),
       h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
       limitError
     ]);
-    const epicHelp = helpTip("Add links to child cards on this board. The Power-Up stores this list and sums time from child cards, including nested epics. Time on this epic card is excluded.");
-    const epicSection = h("section", { class: "epic", hidden: true }, [
-      h("div", { class: "epic-header" }, [
-        h("h2", { class: "epic-heading" }, ["Epic summary", epicHelp]),
-        h("div", { class: "epic-divider" }, logToggle)
-      ]),
+    const epicSection = h("section", {
+      class: "epic", id: "card-epic-panel", role: "tabpanel", "aria-labelledby": "epic-tab", tabindex: "0", hidden: true
+    }, [
       limitSummary,
       limitForm,
       epicBody,
@@ -173,11 +220,38 @@
       linkError
     ]);
 
+    const epicTab = h("button", {
+      type: "button", id: "epic-tab", role: "tab", "aria-controls": "card-epic-panel", "aria-selected": "false", tabindex: "-1",
+      onclick: function () { setTab("epic"); }
+    }, "Epic");
+    const taskTab = h("button", {
+      type: "button", id: "task-tab", role: "tab", "aria-controls": "card-log-panel", "aria-selected": "false", tabindex: "-1",
+      onclick: function () { setTab("task"); }
+    }, "Task");
+    const tabs = h("div", { class: "card-tabs", role: "tablist", "aria-label": "Card time views" }, [epicTab, taskTab]);
+    tabs.addEventListener("keydown", function (event) {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? "epic" : event.key === "End" ? "task" : activeTab === "epic" ? "task" : "epic";
+      setTab(next);
+      (next === "epic" ? epicTab : taskTab).focus();
+    });
+    function setTab(tab) {
+      if (activeTab === tab) return;
+      activeTab = tab;
+      const epic = tab === "epic";
+      epicSection.hidden = !epic;
+      logPanel.hidden = epic;
+      epicTab.setAttribute("aria-selected", String(epic));
+      taskTab.setAttribute("aria-selected", String(!epic));
+      epicTab.tabIndex = epic ? 0 : -1;
+      taskTab.tabIndex = epic ? -1 : 0;
+      hideSuggestions();
+      endDrag();
+    }
+
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
-      logPanel,
-      storage,
-      debugHost,
-      epicSection
+      tabs, epicSection, logPanel, storage, debugHost
     ]));
 
     let editingId = null;
@@ -199,7 +273,7 @@
         note.value = "";
         if (!logPanel.hidden && !form.hidden) duration.focus();
       }).catch(function (error) {
-        setLogOpen(true);
+        setTab("task");
         formError.textContent = error.message || "Could not save entry.";
       });
     });
@@ -339,6 +413,8 @@
       if (cardChanged) {
         linkError.textContent = "";
         linkInput.value = "";
+        selectedChild = null;
+        hideSuggestions();
         addingChild = false;
         draggedId = "";
         editingLimit = false;
@@ -349,9 +425,7 @@
         limitError.textContent = "";
         closeEdit();
       }
-      const showEpic = !!(model.children.length || model.limitMinutes != null);
-      if (cardChanged || showEpic !== epicMode) setLogOpen(!showEpic);
-      epicMode = showEpic;
+      if (cardChanged) setTab(model.children.length || model.limitMinutes != null ? "epic" : "task");
 
       const canWrite = model.canWrite !== false;
       const canAdd = model.canAdd !== false;
@@ -375,7 +449,7 @@
 
       if (model.error) {
         formError.textContent = model.error;
-        setLogOpen(true);
+        setTab("task");
       }
       if (model.limitError) limitError.textContent = model.limitError;
 
@@ -440,7 +514,6 @@
       if (!editingLimit && !limitInput.matches(":focus")) {
         limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
       }
-      epicSection.hidden = false;
       const epicKey = JSON.stringify([model.cardId, settings, model.limitMinutes, model.kidsKnown, !!model.childrenLoading,
         model.estimatedFinish, canWrite, childValues]);
       if (epicKey !== lastEpic) {
@@ -497,17 +570,18 @@
           const scale = Math.max(spent, model.limitMinutes);
           const filled = Math.min(spent, model.limitMinutes) / scale * 100;
           const label = over ? "Over by " + format(-left, settings) : format(left, settings) + " left";
-          epicBody.appendChild(h("div", {
-            class: "epic-progress" + (over ? " is-over" : ""), role: "progressbar",
-            "aria-label": "Child cards time", "aria-valuemin": "0", "aria-valuemax": String(model.limitMinutes),
-            "aria-valuenow": String(Math.min(spent, model.limitMinutes)),
-            "aria-valuetext": format(spent, settings) + " spent by child cards; " + label
-          }, [
-            h("div", { class: "epic-progress-fill", style: "width:" + filled + "%", "aria-hidden": "true" }),
-            over ? h("div", { class: "epic-progress-over", style: "width:" + (100 - filled) + "%", "aria-hidden": "true" }) : null,
+          epicBody.appendChild(h("div", { class: "epic-progress" + (over ? " is-over" : "") }, [
             h("div", { class: "epic-progress-labels", "aria-hidden": "true" }, [
               h("span", null, [h("span", { class: "progress-caption" }, "Spent by child cards"), h("strong", null, format(spent, settings))]),
-              h("span", { class: "progress-remaining" }, [h("span", { class: "progress-caption" }, over ? "Over limit" : "Remaining"), h("strong", null, over ? "Over by " + format(-left, settings) : format(left, settings) + " left")])
+              h("span", { class: "progress-remaining" }, [h("span", { class: "progress-caption" }, over ? "Over limit" : "Remaining"), h("strong", null, label)])
+            ]),
+            h("div", {
+              class: "epic-progress-track", role: "progressbar", "aria-label": "Child cards time",
+              "aria-valuemin": "0", "aria-valuemax": String(model.limitMinutes), "aria-valuenow": String(Math.min(spent, model.limitMinutes)),
+              "aria-valuetext": format(spent, settings) + " spent by child cards; " + label
+            }, [
+              h("div", { class: "epic-progress-fill", style: "width:" + filled + "%" }),
+              over ? h("div", { class: "epic-progress-over", style: "width:" + (100 - filled) + "%" }) : null
             ])
           ]));
           if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [

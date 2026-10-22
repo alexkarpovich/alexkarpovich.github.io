@@ -6,6 +6,8 @@
   let current = null;
   let currentMember = null;
   let rollupNotice = "";
+  let searchCards = null;
+  let searchAt = 0;
   const refresh = window.TimeRuntime.coalesce(reload);
 
   if (window.parent === window) {
@@ -57,6 +59,7 @@
       onDelete: onDelete,
       onLimit: onLimit,
       onLinkAdd: onLinkAdd,
+      onCardSearch: onCardSearch,
       onLinkRemove: onLinkRemove,
       onLinkReorder: onLinkReorder
     });
@@ -188,12 +191,31 @@
     });
   }
 
-  function onLinkAdd(rawLink) {
+  async function onCardSearch(query) {
+    if (!searchCards || Date.now() - searchAt > 30000) {
+      searchAt = Date.now();
+      searchCards = t.cards("id", "name", "url", "shortLink").catch(function (error) { searchCards = null; throw error; });
+    }
+    const cards = await searchCards;
+    const text = String(query || "").trim().toLowerCase();
+    return cards.filter(function (card) {
+      return card.id !== current.cardId && !current.linkedIds.includes(card.id) && String(card.name || "").toLowerCase().includes(text);
+    }).slice(0, 8);
+  }
+
+  function onLinkAdd(rawLink, selectedId) {
     return withSaving(async function () {
-      const match = String(rawLink || "").trim().match(/^https?:\/\/trello\.com\/c\/([A-Za-z0-9]+)(?:[/?#].*)?$/i);
-      if (!match) throw new Error("Paste a Trello card URL (https://trello.com/c/…).");
+      const text = String(rawLink || "").trim();
+      const match = text.match(/^https?:\/\/trello\.com\/c\/([A-Za-z0-9]+)(?:[/?#].*)?$/i);
+      if (!selectedId && /^(?:https?:|trello\.)/i.test(text) && !match) throw new Error("Paste a Trello card URL (https://trello.com/c/…).");
       const cards = await t.cards("id", "name", "url", "shortLink");
-      const child = cards.find(function (item) { return item.shortLink === match[1] || window.TimeEpic.shortLinksInText(item.url).includes(match[1]); });
+      const matches = cards.filter(function (item) {
+        return selectedId ? item.id === selectedId : match
+          ? item.shortLink === match[1] || window.TimeEpic.shortLinksInText(item.url).includes(match[1])
+          : String(item.name || "").toLowerCase() === text.toLowerCase();
+      });
+      if (matches.length > 1) throw new Error("Several cards have this name. Choose a card from the suggestions.");
+      const child = matches[0];
       if (!child) throw new Error("Card not found. Use a visible card on this board in an open list.");
       if (child.id === current.cardId) throw new Error("A card cannot link to itself.");
       // Validate the descendant graph before persisting a new relationship.

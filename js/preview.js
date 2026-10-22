@@ -126,9 +126,14 @@
       paintReport();
       return Promise.resolve();
     },
-    onLinkAdd: function (url) {
+    onCardSearch: function (query) {
+      return Promise.resolve(cards.filter(function (card) {
+        return card.id !== selectedId && !(selected().kids || []).includes(card.id) && card.name.toLowerCase().includes(query.toLowerCase());
+      }));
+    },
+    onLinkAdd: function (url, selectedId) {
       const card = selected();
-      const child = cards.find(function (item) { return item.url === url; });
+      const child = cards.find(function (item) { return selectedId ? item.id === selectedId : item.url === url || item.name.toLowerCase() === url.toLowerCase(); });
       if (!child || child.id === card.id) return Promise.reject(new Error("Use another card URL from this preview."));
       if ((card.kids || []).includes(child.id)) return Promise.reject(new Error("This card is already linked."));
       card.kids = (card.kids || []).concat(child.id);
@@ -274,6 +279,8 @@
     expect(textOf("report-app").indexOf("Макеты онбординга") === -1, "last week hides design");
     clickButton("report-app", "This week");
 
+    clickButton("card-app", "Task");
+    expect(document.querySelector("#card-app .epic").hidden, "Task tab hides epic view");
     document.querySelector("#card-app input[name=duration]").value = "45m";
     document.querySelector("#card-app form.log-form").requestSubmit();
     expect(textOf("card-app").indexOf("45m") !== -1, "logged 45m on epic");
@@ -281,17 +288,32 @@
     expect(textOf("report-app").indexOf("2d 55m") !== -1, "report includes epic log");
 
     expect(document.querySelector('#card-app label[for="epic-limit"]').textContent === "Limit", "visible limit label");
-    expect(document.querySelector('#card-app .epic-heading').textContent.indexOf("Epic summary") !== -1, "epic summary heading");
+    expect(!document.querySelector('#card-app .epic-heading'), "summary heading removed");
+    clickButton("card-app", "Epic");
+    expect(document.querySelector('#card-app .log-panel').hidden, "Epic tab hides task view");
+    expect(document.querySelector('#card-app #epic-tab').getAttribute("aria-selected") === "true", "Epic tab selected");
     const settle = async function () { for (let i = 0; i < 5; i++) await Promise.resolve(); };
     document.querySelector('#card-app button[aria-label="Remove child card"]').click();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 1, "remove child card");
-    clickButton("card-app", "Add child card");
+    clickButton("card-app", "+ add child card");
     document.querySelector('#card-app input[name="card-link"]').value = "https://trello.com/c/design";
     document.querySelector("#card-app .link-form").requestSubmit();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 2, "add child card");
     const cardHost = document.getElementById("card-app");
+    clickButton("card-app", "Task");
+    const taskDraft = cardHost.querySelector('[name="duration"]');
+    taskDraft.value = "20m";
+    const stableEntry = cardHost.querySelector(".entry");
+    clickButton("card-app", "Epic");
+    paintCard();
+    expect(cardHost.querySelector('#epic-tab').getAttribute("aria-selected") === "true", "refresh preserves tab");
+    clickButton("card-app", "Task");
+    expect(taskDraft.value === "20m" && cardHost.querySelector(".entry") === stableEntry, "tabs preserve task draft and entries");
+    taskDraft.value = "";
+    cardHost.querySelector('#task-tab').dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(cardHost.querySelector('#epic-tab').getAttribute("aria-selected") === "true", "tab keyboard navigation");
     const observer = new MutationObserver(function () {});
     observer.observe(cardHost, { subtree: true, childList: true, attributes: true, characterData: true });
     expect(cardView.update(cardModel(selected())) === false, "unchanged model skipped");
@@ -314,6 +336,26 @@
     rows[1].dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, clientY: rows[1].getBoundingClientRect().bottom - 1, dataTransfer: transfer }));
     await settle();
     expect(selected().kids.join(",") === originalOrder, "drag restores order");
+    clickButton("card-app", "+ add child card");
+    const searchInput = cardHost.querySelector('[name="card-link"]');
+    searchInput.value = "bug";
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(!cardHost.querySelector(".child-suggestions").hidden, "autocomplete shows matches");
+    // Search by the real display name; selection carries an ID, not a title match.
+    searchInput.value = cards.find(function (card) { return card.id === "bug"; }).name.slice(0, 3);
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(!!searchInput.getAttribute("aria-activedescendant"), "autocomplete keyboard highlight");
+    searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    cardHost.querySelector(".link-form").requestSubmit();
+    await settle();
+    expect(selected().kids.includes("bug"), "autocomplete adds chosen card");
+    cardHost.querySelector('[data-child-id="bug"] button[aria-label="Remove child card"]').click();
+    await settle();
+    expect(cardHost.querySelector(".epic-progress-track").getBoundingClientRect().height === 6, "thin progress bar");
+    expect(cardHost.querySelector(".epic-progress-labels").getBoundingClientRect().bottom <= cardHost.querySelector(".epic-progress-track").getBoundingClientRect().top, "labels above progress bar");
     const originalLimit = selected().limitMinutes;
     selected().limitMinutes = 30;
     paintCard();
