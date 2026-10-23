@@ -81,7 +81,7 @@
       false, false, function () {
         editingLimit = true;
         limitError.textContent = "";
-        limitInput.value = format(latestModel.limitMinutes, latestModel.settings);
+        limitInput.value = latestModel.limitMinutes != null ? format(latestModel.limitMinutes, latestModel.settings) : "";
         paintLimit(latestModel);
         limitInput.focus();
         limitInput.select();
@@ -202,7 +202,7 @@
     }, [form, addHint, editHost, list]);
     let activeTab = "";
 
-    const limitForm = h("form", { class: "limit-form" }, [
+    const limitForm = h("form", { class: "limit-form", hidden: true }, [
       h("div", { class: "control-row" }, [
         h("label", { for: "card-estimate", class: "muted" }, "Estimate"),
         limitInput, limitButton, clearLimit, cancelLimit
@@ -312,12 +312,11 @@
       if (!model) return;
       const hasLimit = model.limitMinutes != null;
       const canWrite = model.canWrite !== false;
-      limitForm.hidden = !canWrite || (hasLimit && !editingLimit);
-      limitSummary.hidden = !hasLimit || editingLimit;
-      limitValue.textContent = hasLimit ? format(model.limitMinutes, model.settings) : "";
+      limitForm.hidden = !canWrite || !editingLimit;
+      limitSummary.hidden = canWrite && editingLimit;
+      limitValue.textContent = hasLimit ? format(model.limitMinutes, model.settings) : "—";
       editLimit.hidden = !canWrite;
       editLimit.disabled = !!model.saving || !canWrite;
-      cancelLimit.hidden = !hasLimit;
       cancelLimit.disabled = !!model.saving;
       clearLimit.hidden = !hasLimit;
     }
