@@ -499,8 +499,6 @@ button:disabled,
 .epic-name details { margin-top: 3px; font-size: 11px; }
 .epic-name summary { cursor: pointer; color: var(--muted); }
 .epic-child-tree { margin: 3px 0 0 14px; padding-left: 12px; }
-.excluded-date-list { display: grid; gap: 4px; margin-top: 6px; }
-.excluded-date { display: flex; align-items: center; justify-content: space-between; max-width: 240px; font-size: 13px; }
 .epic h2, .epic-report h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
 .remain { font-weight: 600; font-size: 14px; margin: 4px 0; }
 .ok { color: var(--green); }
@@ -563,9 +561,61 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 }
 .banner[hidden] { display: none; }
 
-.settings { display: flex; flex-direction: column; gap: 10px; }
-.settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.settings input, .settings select { max-width: 220px; }
+.settings-page #app { max-width: 480px; margin: 0 auto; padding: 12px; }
+.settings { display: flex; flex-direction: column; gap: 12px; }
+.settings-section { position: relative; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.settings-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.settings-heading h2 { margin: 0; font-size: 13px; font-weight: 650; }
+.settings-heading .help-tip { padding: 0; background: transparent; flex-shrink: 0; }
+.settings-tooltip { position: absolute; z-index: 5; top: 36px; left: 8px; right: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--text); box-shadow: 0 4px 16px #091e4226; font-size: 12px; line-height: 1.5; }
+.settings-unit, .settings-unit-name, .settings-unit-value { display: flex; align-items: center; }
+.settings-unit { justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 12px; }
+.settings-unit-name { gap: 8px; }
+.settings-unit-name strong { display: inline-flex; justify-content: center; min-width: 32px; padding: 3px; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: 13px; }
+.settings-unit-name > span, .settings-unit-value > span { color: var(--muted); }
+.settings-unit-value { gap: 7px; }
+.settings-unit-value > span:last-child { width: 54px; }
+.settings-unit-value input { width: 60px; text-align: center; }
+.settings-summary { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.settings-week-start { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.settings-week-start select { width: 110px; }
+.settings-calendar { margin-top: 10px; }
+.settings-calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+.settings-calendar-nav .button { width: 30px; padding: 0; font-size: 20px; background: transparent; }
+.settings-weekdays, .settings-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.settings-weekdays { padding-bottom: 5px; color: var(--muted); text-align: center; font-size: 10px; }
+.settings-calendar-days > span { height: 28px; }
+.settings-day { position: relative; height: 28px; min-width: 0; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; font-size: 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.settings-day.is-weekend { background: var(--bg); color: var(--muted); }
+.settings-day:hover:not(:disabled) { border-color: var(--blue); }
+.settings-day.is-selected { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); font-weight: 700; }
+.settings-day[aria-current="date"]::after { content: ""; position: absolute; bottom: 2px; left: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.settings :disabled { cursor: default; opacity: 0.55; }
+.settings input:focus-visible { outline: 2px solid var(--ds-border-focused, #85b8ff); outline-offset: 1px; }
+.settings-calendar-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 10px; color: var(--muted); }
+.settings-calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.settings-calendar-legend span::before { content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--bg); border: 1px solid var(--line); }
+.settings-calendar-legend .legend-selected::before { background: var(--blue-soft); border-color: var(--blue); }
+.settings-date-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.settings-selected { min-width: 0; flex: 1; font-size: 11px; }
+.settings-selected summary { cursor: pointer; padding: 3px 0; color: var(--muted); }
+.settings-date-actions .button-link { flex-shrink: 0; padding: 3px 0; font-size: 11px; }
+.settings-date-list { display: flex; gap: 5px; flex-wrap: wrap; max-height: 116px; overflow-y: auto; padding: 5px 2px; }
+.settings-date-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); font-size: 10px; cursor: pointer; }
+.settings-date-chip span { font-size: 14px; line-height: 1; }
+.settings-footer { display: flex; flex-direction: column; gap: 6px; }
+.trello-power-up .settings-save { width: 100%; background: var(--ds-background-brand-bold, #0c66e4); border-color: transparent; color: var(--ds-text-inverse, #fff); }
+.trello-power-up .settings-save:hover:not(:disabled) { background: var(--ds-background-brand-bold-hovered, #0055cc); }
+.settings-auth { margin-top: 12px; }
+.settings-auth .settings-heading { margin-bottom: 6px; }
+.settings-auth-actions { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.settings-auth-status { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+.settings-auth .button-link { font-size: 12px; }
+@media (max-width: 300px) {
+  .settings-page #app { padding: 6px; }
+  .settings-section { padding: 9px; }
+  .settings-unit-name > span { display: none; }
+}
 
 .status:empty { display: none; }
 .status { font-size: 12px; color: var(--muted); margin-bottom: 6px; }

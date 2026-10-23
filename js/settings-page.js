@@ -11,156 +11,204 @@
   }
   window.TimeTheme.bind(t);
   const h = window.TimeDom.h;
+  const duration = window.TimeDuration;
   let ready = false;
   let saving = false;
   const canWrite = t.getContext().permissions && t.getContext().permissions.board === "write";
+  let excludedDates = new Set();
+  const today = new Date();
+  let month = new Date(today.getFullYear(), today.getMonth(), 1);
+  let helpIndex = 0;
 
-  const hours = h("input", { type: "number", min: "1", max: "24", required: "true", id: "hours" });
-  const days = h("input", { type: "number", min: "1", max: "7", required: "true", id: "days" });
-  const week = h("select", { id: "week" }, [
-    h("option", { value: "1" }, "Monday"),
-    h("option", { value: "0" }, "Sunday")
-  ]);
-  const excludedDate = h("input", { type: "date", id: "excluded-date" });
-  const addExcludedDate = h("button", { type: "button", class: "button" }, "Add date");
-  const excludedDateList = h("div", { class: "excluded-date-list" });
-  let excludedDates = [];
-  function paintExcludedDates() {
-    window.TimeDom.clear(excludedDateList);
-    if (!excludedDates.length) {
-      excludedDateList.appendChild(h("span", { class: "muted" }, "No extra dates excluded. Weekends are always excluded."));
-      return;
+  function resize() { Promise.resolve(t.sizeTo("#app")).catch(function () {}); }
+  function heading(title, explanation) {
+    const id = "settings-help-" + (++helpIndex);
+    const tip = h("span", { id: id, class: "settings-tooltip", role: "tooltip", hidden: true }, explanation);
+    const help = h("button", { type: "button", class: "help-tip", "aria-label": "About " + title, "aria-describedby": id, "aria-expanded": "false" }, "?");
+    function show(visible) { tip.hidden = !visible; help.setAttribute("aria-expanded", String(visible)); }
+    help.addEventListener("click", function () { show(true); });
+    help.addEventListener("mouseenter", function () { show(true); });
+    help.addEventListener("mouseleave", function () { if (document.activeElement !== help) show(false); });
+    help.addEventListener("focus", function () { show(true); });
+    help.addEventListener("blur", function () { show(false); });
+    help.addEventListener("keydown", function (event) { if (event.key === "Escape") show(false); });
+    return h("div", { class: "settings-heading" }, [h("h2", null, title), help, tip]);
+  }
+
+  const hours = h("input", { type: "number", min: "1", max: "24", step: "1", required: true, id: "hours", "aria-label": "Hours in 1d" });
+  const days = h("input", { type: "number", min: "1", max: "7", step: "1", required: true, id: "days", "aria-label": "Workdays in 1w" });
+  const monthDays = h("input", { type: "number", min: "1", max: "31", step: "1", required: true, id: "month-days", "aria-label": "Workdays in 1M" });
+  const week = h("select", { id: "week" }, [h("option", { value: "1" }, "Monday"), h("option", { value: "0" }, "Sunday")]);
+  function unitRow(symbol, name, input, unit) {
+    return h("label", { class: "settings-unit", for: input.id }, [
+      h("span", { class: "settings-unit-name" }, [h("strong", null, symbol), h("span", null, name)]),
+      h("span", { class: "settings-unit-value" }, [h("span", { "aria-hidden": true }, "="), input, h("span", null, unit)])
+    ]);
+  }
+  const unitSummary = h("p", { class: "settings-summary", "aria-live": "polite" });
+  function paintUnits() {
+    const value = duration.normalizeSettings({ hoursPerDay: hours.value, daysPerWeek: days.value, daysPerMonth: monthDays.value });
+    unitSummary.textContent = "1w = " + value.hoursPerDay * value.daysPerWeek + "h · 1M = " + value.hoursPerDay * value.daysPerMonth + "h";
+  }
+  [hours, days, monthDays].forEach(function (input) { input.addEventListener("input", paintUnits); });
+
+  const monthLabel = h("strong", { id: "calendar-month", "aria-live": "polite" });
+  const calendarDays = h("div", { class: "settings-calendar-days", role: "group", "aria-labelledby": "calendar-month" });
+  const weekdays = h("div", { class: "settings-weekdays", "aria-hidden": true });
+  const dateCount = h("span", { class: "settings-date-count", role: "status" });
+  const dateList = h("div", { class: "settings-date-list" });
+  const selectedSummary = h("summary", null, dateCount);
+  const selectedDetails = h("details", { class: "settings-selected" }, [selectedSummary, dateList]);
+  selectedDetails.addEventListener("toggle", resize);
+  const clearDates = h("button", { type: "button", class: "button-link", onclick: function () {
+    if (!ready || !canWrite || saving) return;
+    excludedDates.clear();
+    paintCalendar();
+  } }, "Clear all");
+  function toggleDate(ymd) {
+    if (!ready || !canWrite || saving) return;
+    if (excludedDates.has(ymd)) excludedDates.delete(ymd);
+    else excludedDates.add(ymd);
+    paintCalendar(ymd);
+  }
+  function paintCalendar(focusDate) {
+    monthLabel.textContent = month.toLocaleDateString("en", { month: "long", year: "numeric" });
+    window.TimeDom.clear(weekdays);
+    const start = Number(week.value);
+    const names = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+    for (let i = 0; i < 7; i++) weekdays.appendChild(h("span", null, names[(start + i) % 7]));
+    window.TimeDom.clear(calendarDays);
+    const offset = (month.getDay() - start + 7) % 7;
+    const total = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    for (let i = 0; i < 42; i++) {
+      const day = i - offset + 1;
+      if (day < 1 || day > total) { calendarDays.appendChild(h("span")); continue; }
+      const date = new Date(month.getFullYear(), month.getMonth(), day);
+      const ymd = duration.formatYmd(date);
+      const weekend = date.getDay() === 0 || date.getDay() === 6;
+      const selected = excludedDates.has(ymd);
+      const dayButton = h("button", {
+        type: "button", class: "settings-day" + (weekend ? " is-weekend" : "") + (selected ? " is-selected" : ""),
+        disabled: !ready || !canWrite || saving,
+        "aria-label": date.toLocaleDateString("en", { dateStyle: "full" }) + (weekend ? ", weekend" : ""),
+        "aria-pressed": String(selected), "aria-current": ymd === duration.formatYmd(today) ? "date" : null,
+        onclick: function () { toggleDate(ymd); }
+      }, String(day));
+      calendarDays.appendChild(dayButton);
+      if (focusDate === ymd) dayButton.focus();
     }
-    excludedDates.forEach(function (date) {
-      const remove = h("button", { type: "button", class: "button-link", "aria-label": "Remove " + date, onclick: function () {
-        excludedDates = excludedDates.filter(function (item) { return item !== date; });
-        paintExcludedDates();
-      } }, "Remove");
-      excludedDateList.appendChild(h("div", { class: "excluded-date" }, [h("span", null, date), remove]));
+    dateCount.textContent = excludedDates.size + " selected date" + (excludedDates.size === 1 ? "" : "s");
+    clearDates.hidden = !excludedDates.size;
+    clearDates.disabled = !ready || !canWrite || saving;
+    window.TimeDom.clear(dateList);
+    Array.from(excludedDates).sort().forEach(function (ymd) {
+      dateList.appendChild(h("button", {
+        type: "button", class: "settings-date-chip", disabled: !ready || !canWrite || saving,
+        "aria-label": "Remove " + ymd, onclick: function () { toggleDate(ymd); selectedSummary.focus(); }
+      }, [duration.parseYmd(ymd).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" }), h("span", { "aria-hidden": true }, "×")]));
     });
   }
-  addExcludedDate.addEventListener("click", function () {
-    if (!excludedDate.value || !window.TimeDuration.parseYmd(excludedDate.value)) return;
-    if (excludedDates.indexOf(excludedDate.value) === -1) excludedDates.push(excludedDate.value);
-    excludedDates.sort();
-    excludedDate.value = "";
-    paintExcludedDates();
-  });
+  function changeMonth(delta) { month = new Date(month.getFullYear(), month.getMonth() + delta, 1); paintCalendar(); }
+  week.addEventListener("change", paintCalendar);
   const error = h("div", { class: "error", role: "alert" });
-  const button = h("button", { type: "submit", class: "button mod-primary" }, "Save");
+  const button = h("button", { type: "submit", class: "button mod-primary settings-save" }, "Save settings");
   const form = h("form", { class: "settings" }, [
-    h("label", null, ["Hours per work day", hours]),
-    h("label", null, ["Days per work week", days]),
-    h("label", null, ["Week starts on", week]),
-    h("div", { class: "settings-date-exclusions" }, [
-      h("span", { class: "label" }, "Dates to exclude from epic estimates"),
-      h("p", { class: "hint" }, "Weekends are excluded by default. Add holidays or other non-working dates here."),
-      h("div", { class: "control-row" }, [excludedDate, addExcludedDate]), excludedDateList
+    h("section", { class: "settings-section" }, [
+      heading("Time units", "Applies to entries, estimates and reports. 1M = workdays; m = minutes. Saved minutes stay unchanged."),
+      unitRow("1d", "Day", hours, "hours"), unitRow("1w", "Week", days, "workdays"), unitRow("1M", "Month", monthDays, "workdays"), unitSummary
     ]),
-    h("p", { class: "hint" }, "1d and 1w in entries and reports use these values. Already saved minutes are not rewritten."),
-    h("p", { class: "hint" }, window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey
-      ? "API key is set: read access can recover time logs when SDK reads are unavailable."
-      : "Basic time tracking works without extra authorization."),
-    error,
-    button
+    h("section", { class: "settings-section" }, [
+      heading("Non-working days", "Click dates to toggle days off, across any months. Epic finish estimates skip selected dates and all Saturdays and Sundays."),
+      h("label", { class: "settings-week-start", for: "week" }, ["Week starts on", week]),
+      h("div", { class: "settings-calendar" }, [
+        h("div", { class: "settings-calendar-nav" }, [
+          h("button", { type: "button", class: "button", "aria-label": "Previous month", onclick: function () { changeMonth(-1); } }, "‹"),
+          monthLabel,
+          h("button", { type: "button", class: "button", "aria-label": "Next month", onclick: function () { changeMonth(1); } }, "›")
+        ]), weekdays, calendarDays,
+        h("div", { class: "settings-calendar-legend" }, [h("span", { class: "legend-weekend" }, "Weekend"), h("span", { class: "legend-selected" }, "Selected")])
+      ]),
+      h("div", { class: "settings-date-actions" }, [selectedDetails, clearDates])
+    ]),
+    h("div", { class: "settings-footer" }, [error, button])
   ]);
-  button.disabled = !canWrite;
-  if (!canWrite) error.textContent = "This board is read-only.";
 
-  let authSection = null;
+  function lockForm() {
+    [hours, days, monthDays, week, button].forEach(function (control) { control.disabled = !ready || !canWrite || saving; });
+    button.textContent = saving ? "Saving…" : "Save settings";
+    paintCalendar();
+  }
+  lockForm();
+  if (!canWrite) error.textContent = "This board is read-only.";
+  app.textContent = "";
+  app.appendChild(form);
+
   if (window.TIMETRACK_CONFIG && window.TIMETRACK_CONFIG.appKey) {
-    const authStatus = h("p", { class: "hint", role: "status" });
-    const connect = h("button", {
-      type: "button",
-      class: "button mod-primary",
-      hidden: true
-    }, "Allow read access (once)");
-    connect.addEventListener("click", function () {
-      connect.disabled = true;
-      window.TimeRuntime.authorizeReadAccess(t).then(function () {
-        return paintAuth();
-      }).catch(function (err) {
-        authStatus.textContent = err.message || "Could not authorize.";
-      }).finally(function () {
-        connect.disabled = false;
-      });
-    });
-    const disconnect = h("button", {
-      type: "button",
-      class: "button-link",
-      hidden: true,
-      onclick: async function () {
-        disconnect.disabled = true;
-        try {
-          const api = await window.TimeRuntime.restApi(t);
-          await window.TimeRuntime.asPromise(api.clearToken());
-          await paintAuth();
-          authStatus.textContent = "Saved read-access token removed.";
-        } catch (err) {
-          authStatus.textContent = err.message || "Could not disconnect.";
-        } finally { disconnect.disabled = false; }
-      }
-    }, "Forget saved read access");
+    const authStatus = h("span", { class: "settings-auth-status", role: "status" }, "Checking…");
+    const connect = h("button", { type: "button", class: "button", hidden: true }, "Connect");
+    const disconnect = h("button", { type: "button", class: "button-link", hidden: true }, "Disconnect");
     async function paintAuth() {
       const ok = await window.TimeRuntime.isReadAuthorized(t);
       connect.hidden = ok;
       disconnect.hidden = !ok;
-      authStatus.textContent = ok
-        ? "Read access is connected for this account (time logs via REST)."
-        : "Optional read access can recover time logs if Trello does not return them to the Power-Up.";
+      authStatus.textContent = ok ? "Connected" : "Not connected";
+      resize();
     }
-    authSection = h("section", { class: "settings" }, [
-      h("h2", { style: "font-size:13px;margin:0 0 6px" }, "Optional read access"),
-      h("p", { class: "hint" }, "Click Allow inside this panel (not in a new browser tab). Trello may open a small consent window — that is normal and only happens once."),
-      connect,
-      disconnect,
-      authStatus,
-      h("p", { class: "hint" }, [
-        "To revoke at Trello, open ",
-        h("a", { href: "https://trello.com/my/account", target: "_blank", rel: "noopener noreferrer" }, "account settings"),
-        " → Applications."
-      ])
-    ]);
-    paintAuth().catch(function () {});
+    connect.addEventListener("click", async function () {
+      connect.disabled = true;
+      try { await window.TimeRuntime.authorizeReadAccess(t); await paintAuth(); }
+      catch (err) { authStatus.textContent = err.message || "Could not authorize."; }
+      finally { connect.disabled = false; resize(); }
+    });
+    disconnect.addEventListener("click", async function () {
+      disconnect.disabled = true;
+      try {
+        const api = await window.TimeRuntime.restApi(t);
+        await window.TimeRuntime.asPromise(api.clearToken());
+        await paintAuth();
+      } catch (err) { authStatus.textContent = err.message || "Could not disconnect."; }
+      finally { disconnect.disabled = false; resize(); }
+    });
+    app.appendChild(h("section", { class: "settings-section settings-auth" }, [
+      heading("Read access", "Optional access to recover unavailable logs. Connect opens Trello consent. Disconnect forgets the token; revoke it in Trello account settings → Applications."),
+      h("div", { class: "settings-auth-actions" }, [authStatus, connect, disconnect])
+    ]));
+    paintAuth().catch(function () { authStatus.textContent = "Could not check access."; resize(); });
   }
-
-  app.textContent = "";
-  if (authSection) app.appendChild(authSection);
-  app.appendChild(form);
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
-    if (!canWrite || saving) return;
-    saving = true;
-    const next = window.TimeDuration.normalizeSettings({
-      hoursPerDay: hours.value,
-      daysPerWeek: days.value,
-      weekStartsOn: week.value,
-      excludedDates: excludedDates
+    if (!ready || !canWrite || saving || !form.reportValidity()) return;
+    const next = duration.normalizeSettings({
+      hoursPerDay: hours.value, daysPerWeek: days.value, daysPerMonth: monthDays.value,
+      weekStartsOn: week.value, excludedDates: Array.from(excludedDates)
     });
-    button.disabled = true;
-    t.set("board", "shared", "settings", next).then(function () {
+    saving = true;
+    error.textContent = "";
+    lockForm();
+    Promise.resolve().then(function () { return t.set("board", "shared", "settings", next); }).then(function () {
       return t.closePopup();
     }).catch(function (err) {
       saving = false;
-      button.disabled = !canWrite;
-  excludedDate.disabled = !canWrite;
-  addExcludedDate.disabled = !canWrite;
+      lockForm();
       error.textContent = err.message || "Could not save settings.";
+      resize();
     });
   });
 
   t.render(function () {
     if (ready) return;
     return t.get("board", "shared", "settings", null).then(function (raw) {
-      const settings = window.TimeDuration.normalizeSettings(raw);
+      const settings = duration.normalizeSettings(raw);
       hours.value = String(settings.hoursPerDay);
       days.value = String(settings.daysPerWeek);
+      monthDays.value = String(settings.daysPerMonth);
       week.value = String(settings.weekStartsOn);
-      excludedDates = settings.excludedDates.slice();
-      paintExcludedDates();
+      excludedDates = new Set(settings.excludedDates);
       ready = true;
-      return t.sizeTo("#app");
-    }).catch(function (err) { error.textContent = err.message || "Could not load settings."; });
+      lockForm();
+      paintUnits();
+      resize();
+    }).catch(function (err) { error.textContent = err.message || "Could not load settings."; resize(); });
   });
 })();

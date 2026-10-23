@@ -45,6 +45,7 @@ test("uses board settings for a day and a week", function () {
   assert.deepEqual(duration.normalizeSettings({ hoursPerDay: 0, daysPerWeek: 9, weekStartsOn: 0 }), {
     hoursPerDay: 1,
     daysPerWeek: 7,
+    daysPerMonth: 20,
     weekStartsOn: 0,
     excludedDates: []
   });
@@ -74,4 +75,31 @@ test("clock format enforces the same limit as unit format", function () {
   for (const value of ["999999999999999999999:00", "16667:00", "1:60", "1000001m"]) {
     assert.equal(duration.parseDuration(value, settings).ok, false, value);
   }
+});
+
+test("month units are configurable and distinct from minutes", () => {
+  const custom = { hoursPerDay: 6, daysPerWeek: 4, daysPerMonth: 22 };
+  assert.equal(duration.parseDuration("1M", custom).minutes, 7920);
+  assert.equal(duration.parseDuration("1m", custom).minutes, 1);
+  assert.equal(duration.parseDuration("1M 1w 2d 3H 15m", custom).minutes, 10275);
+  assert.equal(duration.parseDuration("1,5M", custom).minutes, 11880);
+  for (const unit of ["month", "MONTHS", "mo", "мес", "МЕСЯЦ"]) {
+    assert.equal(duration.parseDuration("1" + unit, custom).minutes, 7920, unit);
+  }
+  assert.equal(duration.formatDuration(10275, custom), "1M 1w 2d 3h 15m");
+  assert.equal(duration.formatDuration(-7920, custom), "-1M");
+  for (const minutes of [1, 30, 359, 360, 1440, 7919, 7920, 10275, 1000000]) {
+    assert.equal(duration.parseDuration(duration.formatDuration(minutes, custom), custom).minutes, minutes);
+  }
+});
+
+test("legacy boards get a default month and invalid settings are normalized", () => {
+  assert.equal(duration.normalizeSettings(settings).daysPerMonth, 20);
+  assert.equal(duration.parseDuration("1M", settings).minutes, 9600);
+  assert.equal(duration.normalizeSettings({ daysPerMonth: "22" }).daysPerMonth, 22);
+  assert.equal(duration.normalizeSettings({ daysPerMonth: "invalid" }).daysPerMonth, 20);
+  assert.equal(duration.normalizeSettings({ daysPerMonth: 0 }).daysPerMonth, 1);
+  assert.equal(duration.normalizeSettings({ daysPerMonth: 40 }).daysPerMonth, 31);
+  assert.deepEqual(duration.normalizeSettings({ excludedDates: ["2026-12-25", "2026-02-30", "2026-01-01", "2026-12-25"] }).excludedDates,
+    ["2026-01-01", "2026-12-25"]);
 });

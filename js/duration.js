@@ -7,8 +7,9 @@
   const HOUR_WORDS = new Set(["h", "hr", "hrs", "hour", "hours", "ч", "час", "часа", "часов"]);
   const DAY_WORDS = new Set(["d", "day", "days", "д", "день", "дня", "дней"]);
   const WEEK_WORDS = new Set(["w", "wk", "wks", "week", "weeks", "н", "нед", "неделя", "недели", "недель"]);
+  const MONTH_WORDS = new Set(["mo", "mon", "month", "months", "мес", "месяц", "месяца", "месяцев"]);
 
-  const PARSE_ERROR = "Example: 1h 40m, 30m, 1d, 1w, 1:40";
+  const PARSE_ERROR = "Example: 1h 40m, 30m, 1d, 1w, 1M, 1:40";
 
   function clampInt(value, min, max, fallback) {
     const n = Math.round(Number(value));
@@ -21,6 +22,7 @@
     return {
       hoursPerDay: clampInt(source.hoursPerDay, 1, 24, 8),
       daysPerWeek: clampInt(source.daysPerWeek, 1, 7, 5),
+      daysPerMonth: clampInt(source.daysPerMonth, 1, 31, 20),
       weekStartsOn: Number(source.weekStartsOn) === 0 ? 0 : 1,
       excludedDates: Array.from(new Set((Array.isArray(source.excludedDates) ? source.excludedDates : []).filter(function (value) {
         const date = String(value || "");
@@ -36,22 +38,25 @@
       hoursPerDay: normalized.hoursPerDay,
       daysPerWeek: normalized.daysPerWeek,
       day: day,
-      week: normalized.daysPerWeek * day
+      week: normalized.daysPerWeek * day,
+      month: normalized.daysPerMonth * day
     };
   }
 
   function unitMultiplier(unit, settings) {
+    if (unit === "M" || unit === "M.") return unitMinutes(settings).month;
     const clean = String(unit || "").toLowerCase().replace(/\.$/, "").replace(/ё/g, "е");
     if (MINUTE_WORDS.has(clean)) return 1;
     if (HOUR_WORDS.has(clean)) return 60;
     const units = unitMinutes(settings);
     if (DAY_WORDS.has(clean)) return units.day;
     if (WEEK_WORDS.has(clean)) return units.week;
+    if (MONTH_WORDS.has(clean)) return units.month;
     return 0;
   }
 
   function parseDuration(input, settings) {
-    const text = String(input || "").trim().toLowerCase().replace(/ё/g, "е");
+    const text = String(input || "").trim().replace(/ё/g, "е");
     if (!text) return { ok: false, error: PARSE_ERROR };
 
     const clock = text.match(/^(\d+)\s*:\s*(\d{1,2})$/);
@@ -64,7 +69,7 @@
       return { ok: true, minutes: minutes };
     }
 
-    const re = /(\d+(?:[.,]\d+)?)\s*([a-zа-я.]+)/g;
+    const re = /(\d+(?:[.,]\d+)?)\s*([a-zа-яё.]+)/gi;
     let minutes = 0;
     let found = false;
     let cursor = 0;
@@ -91,12 +96,15 @@
     left = Math.abs(left);
     const units = unitMinutes(settings);
     const parts = [];
+    const months = Math.floor(left / units.month);
+    left -= months * units.month;
     const weeks = Math.floor(left / units.week);
     left -= weeks * units.week;
     const days = Math.floor(left / units.day);
     left -= days * units.day;
     const hours = Math.floor(left / 60);
     const mins = left % 60;
+    if (months) parts.push(months + "M");
     if (weeks) parts.push(weeks + "w");
     if (days) parts.push(days + "d");
     if (hours) parts.push(hours + "h");

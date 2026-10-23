@@ -47,7 +47,7 @@ Log time on cards (30m, 1h, 1d), badge totals, filtered board reports, XLSX expo
 ```text
 Time Tracking adds lightweight time logging directly on Trello cards.
 
-• Log time with flexible formats: 30m, 1h 40m, 1:40, 1d, 1w (work-day/week settings are configurable per board).
+• Log time with flexible formats: 30m, 1h 40m, 1:40, 1d, 1w, 1M (work-day/week/month settings are configurable per board).
 • See logged time on card badges and open a full log from the card back.
 • Open a board-wide Time report with date range, author, and label filters.
 • Export filtered results as an Excel workbook (.xlsx) with Report, Entries, and Epics sheets.
@@ -56,7 +56,7 @@ Time Tracking adds lightweight time logging directly on Trello cards.
 
 All time entries and board settings are stored in Trello shared Power-Up data on your boards—there is no vendor backend or extra login.
 
-Optional one-time read access: if you use epic remaining time and Trello cannot return child time logs through the SDK, click “Allow read access (once)” in settings. This uses Trello’s OAuth with read-only scope; you can disconnect anytime in Power-Up settings or Trello account → Applications.
+Optional one-time read access: if you use epic remaining time and Trello cannot return child time logs through the SDK, click “Connect” in settings. This uses Trello’s OAuth with read-only scope; you can disconnect anytime in Power-Up settings or Trello account → Applications.
 
 Free to use. Works on boards in your Workspace after you enable the Power-Up from the board menu.
 ```
@@ -101,8 +101,8 @@ Workspace: [NAME OF YOUR TEST WORKSPACE — same as registered on the Power-Up]
 2. On first enable, a setup modal may open if read access is not yet granted—this is optional for basic logging; click through or close it and use the card normally.
 3. Open any card → click “Time” or the “Time tracking” card-back section → add 30m → Save. Badge should show 30m.
 4. Board menu → “Time report” → confirm totals and try a date filter → Export (.xlsx); open in Excel and confirm three sheets.
-5. Epic test (optional): add two child card URLs in the Epic tab using + add child card; set limit 2h on the epic; log 30m on each child; epic section should show remaining time and “Est. finish”; switch to Task to log time on the same card, then back to Epic to check child totals. Badge should update after optional “Allow read access (once)” in Power-Up settings (board menu → Power-Ups → Time Tracking → Settings).
-6. Settings: Power-Ups → Time Tracking → Settings → adjust work day/week and excluded dates (affect epic estimates); “Forget saved read access” if token was connected.
+5. Epic test (optional): add two child card URLs in the Epic tab using + add child card; set limit 2h on the epic; log 30m on each child; epic section should show remaining time and “Est. finish”; switch to Task to log time on the same card, then back to Epic to check child totals. Badge should update after optional “Connect” in Power-Up settings (board menu → Power-Ups → Time Tracking → Settings).
+6. Settings: Power-Ups → Time Tracking → Settings → adjust work day/week/month and select multiple excluded dates in the calendar (affect epic estimates); “Disconnect” if token was connected.
 
 No third-party account. No payment. Public API key in static JS is intentional (Trello-allowed); user tokens are never in source code.
 
