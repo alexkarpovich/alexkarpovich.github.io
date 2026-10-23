@@ -62,11 +62,13 @@
   selectedDetails.addEventListener("toggle", resize);
   const clearDates = h("button", { type: "button", class: "button-link", onclick: function () {
     if (!ready || !canWrite || saving) return;
+    saveStatus.textContent = "";
     excludedDates.clear();
     paintCalendar();
   } }, "Clear all");
   function toggleDate(ymd) {
     if (!ready || !canWrite || saving) return;
+    saveStatus.textContent = "";
     if (excludedDates.has(ymd)) excludedDates.delete(ymd);
     else excludedDates.add(ymd);
     paintCalendar(ymd);
@@ -111,6 +113,7 @@
   function changeMonth(delta) { month = new Date(month.getFullYear(), month.getMonth() + delta, 1); paintCalendar(); }
   week.addEventListener("change", paintCalendar);
   const error = h("div", { class: "error", role: "alert" });
+  const saveStatus = h("div", { class: "status", role: "status" });
   const button = h("button", { type: "submit", class: "button mod-primary settings-save" }, "Save settings");
   const form = h("form", { class: "settings" }, [
     h("section", { class: "settings-section" }, [
@@ -130,7 +133,7 @@
       ]),
       h("div", { class: "settings-date-actions" }, [selectedDetails, clearDates])
     ]),
-    h("div", { class: "settings-footer" }, [error, button])
+    h("div", { class: "settings-footer" }, [error, saveStatus, button])
   ]);
 
   function lockForm() {
@@ -176,7 +179,8 @@
     paintAuth().catch(function () { authStatus.textContent = "Could not check access."; resize(); });
   }
 
-  form.addEventListener("submit", function (event) {
+  form.addEventListener("input", function () { saveStatus.textContent = ""; });
+  form.addEventListener("submit", async function (event) {
     event.preventDefault();
     if (!ready || !canWrite || saving || !form.reportValidity()) return;
     const next = duration.normalizeSettings({
@@ -185,15 +189,33 @@
     });
     saving = true;
     error.textContent = "";
-    lockForm();
-    Promise.resolve().then(function () { return t.set("board", "shared", "settings", next); }).then(function () {
-      return t.closePopup();
-    }).catch(function (err) {
+    saveStatus.textContent = "";
+    let timer;
+    let saved = false;
+    try {
+      lockForm();
+      // A missing SDK reply must not leave this iframe locked indefinitely.
+      await Promise.race([
+        Promise.resolve().then(function () { return t.set("board", "shared", "settings", next); }),
+        new Promise(function (_, reject) {
+          timer = setTimeout(function () {
+            reject(new Error("Trello did not confirm saving. Reopen settings to check before retrying."));
+          }, 15000);
+        })
+      ]);
+      saved = true;
+      saveStatus.textContent = "Settings saved.";
+    } catch (err) {
+      error.textContent = err && err.message || "Could not save settings.";
+    } finally {
+      clearTimeout(timer);
       saving = false;
       lockForm();
-      error.textContent = err.message || "Could not save settings.";
       resize();
-    });
+    }
+    // Closing is best-effort UI cleanup, not part of the write transaction.
+    // Settings can also be shown in a modal where closePopup is a no-op.
+    if (saved) Promise.resolve().then(function () { return t.closePopup(); }).catch(function () {});
   });
 
   t.render(function () {

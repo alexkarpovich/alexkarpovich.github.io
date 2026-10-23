@@ -9,7 +9,8 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
 // Preview also includes interactive regression checks; production card includes accessible card-name autocomplete.
-const budgets = { index: 34000, card: 57000, report: 42000, settings: 22000, "auth-complete": 2000, preview: 57000 };
+// Settings includes bounded save waits and recovery when Trello cannot close its panel.
+const budgets = { index: 34000, card: 57000, report: 42000, settings: 22500, "auth-complete": 2000, preview: 57000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.
