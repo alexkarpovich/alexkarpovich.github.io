@@ -54,21 +54,20 @@
     addButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
     const formError = h("div", { class: "error", role: "alert" });
     const addHint = h("p", { class: "hint add-hint" }, "");
-    const total = h("div", { class: "total" });
     const list = h("div", { class: "entry-list" });
     const storage = h("div", { class: "hint" });
     const debugHost = h("pre", { class: "epic-debug hint", hidden: true });
     const editHost = h("div", { class: "edit-panel", hidden: "hidden" });
 
     const limitInput = h("input", {
-      id: "epic-limit",
+      id: "card-estimate",
       name: "limit",
       placeholder: "1w",
       autocomplete: "off",
-      "aria-label": "Epic time limit",
+      "aria-label": "Estimate",
       maxlength: "40"
     });
-    const limitButton = h("button", { type: "submit", class: "button mod-primary" }, "Save limit");
+    const limitButton = h("button", { type: "submit", class: "button mod-primary", "aria-label": "Save estimate" }, "Save");
     const clearLimit = h("button", { type: "button", class: "button-link" }, "Clear");
     const cancelLimit = h("button", { type: "button", class: "button-link", onclick: function () {
       editingLimit = false;
@@ -77,7 +76,7 @@
     } }, "Cancel");
     const limitError = h("div", { class: "error", role: "alert" });
     const limitValue = h("strong");
-    const editLimit = entryAction("Edit epic limit",
+    const editLimit = entryAction("Edit estimate",
       '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
       false, false, function () {
         editingLimit = true;
@@ -87,7 +86,7 @@
         limitInput.focus();
         limitInput.select();
       });
-    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [h("span", { class: "muted" }, "Limit"), limitValue, editLimit]);
+    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [h("span", { class: "muted" }, "Estimate"), limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
     const linkInput = h("input", {
       id: "epic-card-link", name: "card-link", type: "text", placeholder: "Card name or Trello URL", role: "combobox",
@@ -200,19 +199,19 @@
     ]);
     const logPanel = h("div", {
       class: "log-panel", id: "card-log-panel", role: "tabpanel", "aria-labelledby": "task-tab", tabindex: "0"
-    }, [form, addHint, editHost, total, list]);
+    }, [form, addHint, editHost, list]);
     let activeTab = "";
 
     const limitForm = h("form", { class: "limit-form" }, [
-      h("label", { for: "epic-limit", class: "muted" }, "Limit"),
-      h("div", { class: "control-row" }, [limitInput, limitButton, clearLimit, cancelLimit]),
+      h("div", { class: "control-row" }, [
+        h("label", { for: "card-estimate", class: "muted" }, "Estimate"),
+        limitInput, limitButton, clearLimit, cancelLimit
+      ]),
       limitError
     ]);
     const epicSection = h("section", {
       class: "epic", id: "card-epic-panel", role: "tabpanel", "aria-labelledby": "epic-tab", tabindex: "0", hidden: true
     }, [
-      limitSummary,
-      limitForm,
       epicBody,
       addChild,
       linkForm,
@@ -250,6 +249,7 @@
     }
 
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
+      h("div", { class: "card-estimate" }, [limitSummary, limitForm]),
       tabs, epicSection, logPanel, storage, debugHost
     ]));
 
@@ -323,7 +323,7 @@
     }
 
     function showLimitError(error) {
-      limitError.textContent = error.message || "Could not save limit.";
+      limitError.textContent = error.message || "Could not save estimate.";
     }
 
     function closeEdit() {
@@ -424,7 +424,7 @@
         limitError.textContent = "";
         closeEdit();
       }
-      if (cardChanged) setTab(model.children.length || model.limitMinutes != null ? "epic" : "task");
+      if (cardChanged) setTab(model.children.length ? "epic" : "task");
 
       const canWrite = model.canWrite !== false;
       const canAdd = model.canAdd !== false;
@@ -455,11 +455,6 @@
       const entriesKey = JSON.stringify([model.cardId, model.entries, settings, model.currentMemberId, canWrite]);
       if (entriesKey !== lastEntries) {
         lastEntries = entriesKey;
-        clear(total);
-        const own = model.entries.reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
-        total.appendChild(h("span", { class: "muted" }, "On card"));
-        total.appendChild(h("strong", null, format(own, settings)));
-
         clear(list);
         const sorted = sortEntries(model.entries);
         if (!sorted.length) {
@@ -487,7 +482,7 @@
                 ]),
                 mine && canWrite ? actions : null
               ]),
-              entry.note ? h("div", { class: "note" }, entry.note) : null
+              entry.note ? h("div", { class: "note", title: entry.note }, entry.note) : null
             ]));
           });
         }
@@ -572,7 +567,7 @@
           epicBody.appendChild(h("div", { class: "epic-progress" + (over ? " is-over" : "") }, [
             h("div", { class: "epic-progress-labels", "aria-hidden": "true" }, [
               h("span", null, [h("span", { class: "progress-caption" }, "Spent by child cards"), h("strong", null, format(spent, settings))]),
-              h("span", { class: "progress-remaining" }, [h("span", { class: "progress-caption" }, over ? "Over limit" : "Remaining"), h("strong", null, label)])
+              h("span", { class: "progress-remaining" }, [h("span", { class: "progress-caption" }, over ? "Over estimate" : "Remaining"), h("strong", null, label)])
             ]),
             h("div", {
               class: "epic-progress-track", role: "progressbar", "aria-label": "Child cards time",
@@ -592,7 +587,7 @@
         }
       }
       if (!model.children.length) {
-        epicBody.appendChild(h("p", { class: "empty-state" }, "Add child card links to track an epic. A limit is optional."));
+        epicBody.appendChild(h("p", { class: "empty-state" }, "Add child card links to track an epic. An estimate is optional."));
         return;
       }
       const childList = h("div", { class: "child-list" });

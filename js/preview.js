@@ -287,7 +287,7 @@
     expect(textOf("card-app").indexOf("1w 3d 20m left") !== -1, "epic own time ignored");
     expect(textOf("report-app").indexOf("2d 55m") !== -1, "report includes epic log");
 
-    expect(document.querySelector('#card-app label[for="epic-limit"]').textContent === "Limit", "visible limit label");
+    expect(document.querySelector('#card-app label[for="card-estimate"]').textContent === "Estimate", "estimate label");
     expect(!document.querySelector('#card-app .epic-heading'), "summary heading removed");
     clickButton("card-app", "Epic");
     expect(document.querySelector('#card-app .log-panel').hidden, "Epic tab hides task view");
@@ -363,7 +363,7 @@
     expect(cardHost.querySelector(".epic-progress").textContent.includes("Over by"), "over-budget value");
     selected().limitMinutes = originalLimit;
     paintCard();
-    document.querySelector('#card-app button[aria-label="Edit epic limit"]').click();
+    document.querySelector('#card-app button[aria-label="Edit estimate"]').click();
     document.querySelector('#card-app .limit-form .button-link').click();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 2, "child cards visible without a limit");
