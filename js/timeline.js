@@ -85,23 +85,14 @@
     const cycleIds = new Set(cycles(g, roots));
     const warnings = [];
     if (cycleIds.size) warnings.push("Circular links block the affected work. Remove the cycle to calculate its dates.");
-    // A group ETA can stand in for its unestimated children as one coarse work block.
-    // Do not infer individual child dates or flatten child-specific dependencies.
-    function hasDetailedWork(id, path) {
-      if (path.has(id)) return true;
-      const card = g.byId.get(id);
-      if (!card || card.missing || card.limitMinutes != null || (card.dependencyIds || []).length ||
-        card.planning && (card.planning.maxFte != null || (card.planning.changes || []).length) || (g.parents.get(id) || []).length > 1) return true;
-      path = new Set(path); path.add(id);
-      return (card.linkedIds || card.kids || []).some(function (child) { return hasDetailedWork(child, path); });
-    }
+    // An explicit group ETA overrides its child totals. Child estimates remain visible as detail.
     const aggregateGroups = new Set(cards.filter(function (card) {
       const kids = card.linkedIds || card.kids || [];
-      return !card.missing && card.limitMinutes != null && kids.length &&
-        !kids.some(function (child) { return hasDetailedWork(child, new Set([card.id])); });
+      return !card.missing && card.limitMinutes != null && kids.length;
     }).map(function (card) { return card.id; }));
     const aggregateOwner = new Map();
     aggregateGroups.forEach(function (id) {
+      if (!scope.has(id) || Array.from(g.ancestors(id)).some(function (parent) { return scope.has(parent) && aggregateGroups.has(parent); })) return;
       function mark(child, path) {
         if (path.has(child)) return;
         path = new Set(path); path.add(child);
@@ -111,7 +102,7 @@
       }
       (g.byId.get(id).linkedIds || g.byId.get(id).kids || []).forEach(function (child) { mark(child, new Set([id])); });
     });
-    if (Array.from(aggregateGroups).some(function (id) { return scope.has(id); })) warnings.push("Group ETA is used as one work block where children have no ETA. Individual child dates cannot be calculated.");
+    if (Array.from(aggregateGroups).some(function (id) { return scope.has(id); })) warnings.push("An epic's own ETA overrides child totals. Child bars show separate estimates; they do not add to the epic's planned load.");
     function aggregateSpent(id) {
       const seen = new Set();
       function total(key) {
@@ -142,6 +133,26 @@
       if (aggregateGroups.has(id) || !kids || !kids.length) order.push(id); else kids.forEach(prioritize);
     }
     roots.forEach(prioritize); scope.forEach(prioritize);
+    function workDependencies(id) {
+      const dependencies = new Set(g.dependencies(id));
+      if (aggregateGroups.has(id)) {
+        const seen = new Set([id]);
+        function visit(key) {
+          if (seen.has(key)) return;
+          seen.add(key);
+          const card = g.byId.get(key);
+          if (!card) return;
+          (card.dependencyIds || []).forEach(function (dep) { dependencies.add(dep); });
+          (card.linkedIds || card.kids || []).forEach(visit);
+        }
+        const card = g.byId.get(id);
+        (card.linkedIds || card.kids || []).forEach(visit);
+        seen.forEach(function (key) { dependencies.delete(key); });
+      }
+      return Array.from(new Set(Array.from(dependencies).flatMap(function (dep) {
+        return aggregateOwner.has(dep) ? [aggregateOwner.get(dep)] : leaves(dep);
+      }))).filter(function (dep) { return dep !== id; });
+    }
     const tasks = order.map(function (id) {
       const card = g.byId.get(id), done = !!card && (aggregateGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
       const remaining = done ? 0 : card && card.limitMinutes != null
@@ -149,7 +160,7 @@
       const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" : !done && (!remaining || remaining < EPS) ? "Set or increase ETA" : "";
       return { id: id, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
         start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null,
-        deps: Array.from(new Set(g.dependencies(id).flatMap(function (dep) { return leaves(dep); }))),
+        deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
           const ancestor = g.byId.get(key), setting = ancestor && ancestor.planning || {};
           return { id: key, calendar: normalizeCalendar({ baseFte: setting.maxFte, changes: setting.changes }, key === id && !aggregateGroups.has(id) ? 1 : 100) };
@@ -205,18 +216,41 @@
       rows.set(id, { id: id, card: card, start: starts[0] || (complete ? options.start : null), finish: complete ? finishes[finishes.length - 1] : null,
         scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
     });
+    if (options.details !== false && !cycleIds.size) tasks.forEach(function (task) {
+      if (!aggregateGroups.has(task.id) || !task.start) return;
+      const descendants = new Set();
+      function collect(id) {
+        if (descendants.has(id)) return;
+        descendants.add(id);
+        const card = g.byId.get(id);
+        if (card) (card.linkedIds || card.kids || []).forEach(collect);
+      }
+      const kids = g.byId.get(task.id).linkedIds || g.byId.get(task.id).kids || [];
+      kids.forEach(collect);
+      const detailCards = cards.map(function (card) { return Object.assign({}, card, {
+        dependencyIds: (card.dependencyIds || []).filter(function (id) { return descendants.has(id); })
+      }); });
+      const detail = plan(detailCards, Object.assign({}, options, { rootIds: kids, start: task.start }));
+      detail.rows.forEach(function (row, id) {
+        if (descendants.has(id) && row.start) rows.set(id, Object.assign({}, row, { status: "Child ETA · " + row.status }));
+      });
+    });
     const incomplete = tasks.filter(function (task) { return !task.done; });
     if (incomplete.length) warnings.push(incomplete.length + " work item(s) have no reliable finish. Check ETA, dependencies and available FTE.");
     // Keep useful context for a finished/empty plan without rendering ten years of blocked days.
     const lastWork = days.findLastIndex(function (day) { return day.minutes > EPS; });
-    const visibleDays = days.slice(0, Math.max(28, lastWork + 1));
-    while (visibleDays.length < 28) {
+    const detailDays = Math.min(3650, Math.max(0, ...Array.from(rows.values()).map(function (row) {
+      return row.finish || row.scheduledThrough ? Math.round((Date.parse(row.finish || row.scheduledThrough) - Date.parse(options.start)) / 86400000) + 1 : 0;
+    })));
+    const visibleCount = Math.max(28, lastWork + 1, detailDays);
+    const visibleDays = days.slice(0, visibleCount);
+    while (visibleDays.length < visibleCount) {
       const next = new Date(options.start + "T12:00:00Z"); next.setUTCDate(next.getUTCDate() + visibleDays.length);
       const ymd = next.toISOString().slice(0, 10), workday = ![0, 6].includes(next.getUTCDay()) && !excluded.has(ymd);
       visibleDays.push({ date: ymd, availableFte: workday ? capacity(calendar, ymd) : 0, usedFte: 0, minutes: 0, workday: workday });
     }
     return { roots: roots, rows: rows, tasks: tasks, days: visibleDays, warnings: warnings, complete: !incomplete.length && !cycleIds.size,
-      finish: incomplete.length || cycleIds.size ? null : Array.from(rows.values()).map(function (row) { return row.finish; }).filter(Boolean).sort().pop() || null,
+      finish: incomplete.length || cycleIds.size ? null : tasks.map(function (task) { return task.finish; }).filter(Boolean).sort().pop() || null,
       graph: g, calendar: calendar };
   }
   return { validDate: validDate, normalizeCalendar: normalizeCalendar, capacity: capacity,

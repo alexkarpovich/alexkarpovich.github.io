@@ -40,19 +40,19 @@ test("a group with one estimated child renders dates from the child without a gr
   assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h remaining/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "child and grouping epic both appear on the timeline");
 });
-test("an epic with ETA only on its phases still draws a useful timeline", async () => {
+test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async () => {
   const h = harness({ rootId: "epic", cards: [
     { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
     { id: "task1", name: "Task 1" }, { id: "task2", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
   ], timeById: {
     epic: { e: [], lim: 2400, lc: ["phase0", "phase1"] },
     phase0: { e: [], lim: 960, lc: ["task1", "task2"] },
-    task1: { e: [] }, task2: { e: [] }, phase1: { e: [], lim: 480 }
+    task1: { e: [] }, task2: { e: [] }, phase1: { e: [] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*3d remaining.*2 work items/);
-  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 3, "epic and both phases have dated bars");
-  assert.match(h.host.textContent, /Included in Phase 0 ETA/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w remaining.*1 work items/);
+  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "Epic and Phase 0 have dated bars");
+  assert.match(h.host.textContent, /Included in EPIC ETA/);
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
 });
 test("board tabs load each view on demand and retain the report when switching back", async () => {
