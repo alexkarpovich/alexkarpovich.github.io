@@ -152,12 +152,13 @@
       const spent = estimatedGroups.has(id) ? aggregateSpent(id) : (card && card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0);
       const estimate = card && card.limitMinutes;
       const overrun = estimate != null ? Math.max(0, spent - estimate) : 0;
-      // An overrun is a delay to allocate, rather than a missing estimate.
-      const remaining = done ? 0 : estimate != null ? Math.max(0, estimate - spent) + overrun : null;
+      // The timeline shows the full estimate, extended by any logged overrun.
+      // Spent time must not shrink an estimated card to just its remaining work.
+      const remaining = done ? 0 : estimate != null ? estimate + overrun : null;
       const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
         !done && remaining == null ? "Set ETA" : "";
       return { id: id, estimate: estimate, spent: spent, overrun: overrun, nativeDone: done, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
-        start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null,
+        start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null, overrunStartTime: null,
         deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
           const ancestor = g.byId.get(key), setting = ancestor && ancestor.planning || {};
@@ -204,6 +205,10 @@
         running.forEach(function (item) {
           const task = item.task, minutes = step * hours * 60 * item.rate;
           if (task.start == null) { task.start = ymd; task.startTime = elapsed + time; }
+          const allocated = task.total - task.remaining;
+          if (task.overrun > EPS && task.overrunStartTime == null && allocated + minutes >= task.estimate - EPS) {
+            task.overrunStartTime = elapsed + time + Math.max(0, task.estimate - allocated) / (hours * 60 * item.rate);
+          }
           task.remaining = Math.max(0, task.remaining - minutes); task.lastDate = ymd; used += minutes;
           if (task.remaining < EPS) { task.done = true; task.finish = ymd; task.finishTime = elapsed + time + step; }
         });
@@ -232,6 +237,8 @@
         startTime: startTimes.length ? Math.min(...startTimes) : complete ? 0 : null,
         finishTime: complete && finishTimes.length ? Math.max(...finishTimes) : null,
         estimate: ownTask ? ownTask.estimate : null, spent: ownTask ? ownTask.spent : null, overrun: ownTask ? ownTask.overrun : 0,
+        overrunStartTime: ownTask ? ownTask.overrunStartTime : null,
+        overrunFinishTime: ownTask && ownTask.overrunStartTime != null ? ownTask.finishTime : null,
         scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
     });
     const incomplete = tasks.filter(function (task) { return !task.done; });

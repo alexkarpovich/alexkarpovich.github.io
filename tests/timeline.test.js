@@ -80,11 +80,11 @@ test("epic and nested phase ETAs all contribute to the shared schedule", () => {
     task("a", null, { entries: [{ minutes: 120 }] }), task("b", null), task("phase1", 480)];
   const p = plan(cards, { rootIds: ["epic"], calendar: { baseFte: 1 } });
   assert.equal(p.tasks.length, 3);
-  assert.equal(p.rows.get("phase0").minutes, 840, "logged child work reduces the phase ETA");
+  assert.equal(p.rows.get("phase0").minutes, 960, "logged child work does not shrink the full phase ETA");
   assert.ok(p.rows.get("phase0").finish);
-  assert.equal(p.rows.get("epic").minutes, 4080, "the epic includes its own remaining ETA and all child estimates");
+  assert.equal(p.rows.get("epic").minutes, 4320, "the epic includes its full ETA and all child estimates");
   assert.equal(p.finish, "2026-11-05");
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 4080);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 4320);
   assert.deepEqual(p.warnings, []);
 });
 
@@ -139,33 +139,28 @@ test("estimated children keep their own dependencies under an estimated parent",
   assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
-test("an over-limit phase gets its own bar and delays the epic remainder by the overrun", () => {
+test("a seven-day phase shows its full ETA plus overrun beneath an estimated epic", () => {
   const p = plan([
     group("epic", ["phase0", "phase1"], { limitMinutes: 11520 }),
-    group("phase0", ["a", "b"], { limitMinutes: 240 }),
-    task("a", null, { entries: [{ minutes: 133 }] }),
+    group("phase0", ["a", "b"], { limitMinutes: 3360 }),
+    task("a", null, { entries: [{ minutes: 3493 }] }),
     task("b", null, { entries: [{ minutes: 120 }] }),
     task("phase1", null, { dependencyIds: ["phase0"] })
   ], { calendar: { baseFte: 1 } });
   const epic = p.tasks.find(item => item.id === "epic");
-  assert.deepEqual(epic.deps, []);
-  assert.equal(epic.total, 11267);
-  assert.equal(epic.start, start);
-  assert.equal(epic.finish, "2026-11-26");
-  assert.equal(p.rows.get("epic").start, start);
-  assert.equal(p.rows.get("epic").scheduledThrough, epic.finish);
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 11280);
   const phase = p.tasks.find(item => item.id === "phase0");
-  assert.equal(phase.overrun, 13);
-  assert.equal(phase.total, 13);
+  assert.equal(epic.total, 11520);
+  assert.equal(phase.total, 3613, "seven full workdays plus 4h 13m of overrun");
+  assert.equal(phase.overrun, 253);
   assert.equal(phase.startTime, 0);
-  assert.equal(phase.finishTime, 13 / 480);
+  assert.equal(phase.overrunStartTime, 9, "seven workdays occupy nine calendar days");
+  assert.equal(phase.finishTime, 9 + 253 / 480);
   assert.equal(epic.startTime, phase.finishTime);
-  assert.equal(p.rows.get("phase0").overrun, 13);
-  assert.equal(p.rows.get("phase0").start, start);
-  assert.equal(p.rows.get("phase0").finish, start);
+  assert.equal(p.rows.get("phase0").overrunStartTime, 9);
+  assert.equal(p.rows.get("phase0").finish, "2026-11-04");
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 15133);
   assert.equal(p.complete, true);
-  assert.equal(p.finish, "2026-11-26");
+  assert.equal(p.finish, "2026-12-08");
 });
 
 test("missing estimates and unavailable dependencies cannot imply completion", () => {
@@ -188,37 +183,39 @@ test("overrun shifts dependent work by exact working minutes, including weekends
   for (const baseFte of [1, 0.5]) {
     const p = plan(cards, { start: "2026-10-30", calendar: { baseFte } });
     const after = p.tasks.find(item => item.id === "after");
-    assert.equal(after.startTime, 13 / (480 * baseFte));
+    assert.equal(after.startTime, baseFte === 1 ? 253 / 480 : 3 + 13 / 240);
+    assert.equal(p.rows.get("first").overrunStartTime, baseFte === 1 ? 0.5 : 1);
     assert.equal(p.rows.get("first").overrun, 13);
-    assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 493);
-    assert.equal(p.finish, baseFte === 1 ? "2026-11-02" : "2026-11-03");
+    assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 733);
+    assert.equal(p.finish, baseFte === 1 ? "2026-11-02" : "2026-11-04");
     assert.ok(p.days.filter(day => !day.workday).every(day => day.minutes === 0));
   }
 });
 
-test("an ETA exactly consumed is a zero-duration milestone that releases successors", () => {
+test("an ETA exactly consumed retains its full scheduled duration", () => {
   const p = plan([task("before", 480), task("exact", 240, { entries: [{ minutes: 240 }], dependencyIds: ["before"] }),
     task("after", 480, { dependencyIds: ["exact"] })], { calendar: { baseFte: 1 } });
   const exact = p.tasks.find(item => item.id === "exact");
   const after = p.tasks.find(item => item.id === "after");
-  assert.equal(exact.total, 0);
+  assert.equal(exact.total, 240);
   assert.equal(exact.startTime, 1);
-  assert.equal(exact.finishTime, 1);
+  assert.equal(exact.finishTime, 1.5);
   assert.equal(exact.nativeDone, false, "the forecast does not change Trello completion");
-  assert.equal(p.rows.get("exact").start, start);
-  assert.equal(after.startTime, 1);
+  assert.equal(p.rows.get("exact").start, "2026-10-27");
+  assert.equal(after.startTime, 1.5);
   assert.equal(p.complete, true);
-  assert.equal(p.finish, "2026-10-27");
+  assert.equal(p.finish, "2026-10-28");
 });
 
-test("native completion and revised estimate determine remaining work", () => {
+test("native completion skips work while logs do not shorten the full ETA", () => {
   const cards = [task("a", null, { dueComplete: true }), task("b", 840, { entries: [{ minutes: 600 }], planning: { remainingMinutes: 1 }, dependencyIds: ["a"] })];
   const p = plan(cards);
-  assert.equal(p.finish, start);
-  assert.equal(p.days[0].minutes, 240);
+  assert.equal(p.finish, "2026-10-27");
+  assert.equal(p.days[0].minutes, 480);
+  assert.equal(p.rows.get("b").minutes, 840);
   assert.equal(p.rows.get("a").status, "Done");
   cards[1].entries.push({ minutes: 60 });
-  assert.equal(plan(cards).days[0].minutes, 180, "logging time reduces the plan without changing the estimate");
+  assert.equal(plan(cards).rows.get("b").minutes, 840, "logging time does not subtract from the full ETA");
   assert.equal(model.decode({ e: [], p: { remainingMinutes: 120 } }).planning, null, "the removed override is ignored");
 });
 

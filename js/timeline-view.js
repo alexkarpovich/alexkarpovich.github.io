@@ -23,10 +23,10 @@
       try { await handlers.onRefresh(); } catch (e) { error.textContent = e.message; } finally { refresh.disabled = false; }
     } }, "Refresh");
     host.appendChild(h("div", { class: "timeline" }, [
-      h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Remaining work, dependencies and shared team capacity")]), refresh]),
+      h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Full ETA, overruns and shared team capacity")]), refresh]),
       h("div", { class: "timeline-toolbar" }, [h("label", null, ["Project", project]), h("label", null, ["Forecast from", start]), h("label", null, ["Scale", scale])]),
       details, error, summary, warnings, chart,
-      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Child work has priority over the epic's own remaining work. Red bars show time over ETA; this delay shifts subsequent work using the same FTE calendar and dependencies. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
+      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Bars show the full ETA plus any overrun, without subtracting spent time. Child work has priority over the epic's own ETA. Red segments show time over ETA and shift subsequent work using the same FTE calendar and dependencies. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
     ]));
     form.addEventListener("submit", async function (event) {
       event.preventDefault(); if (saving || !writable) return;
@@ -50,7 +50,7 @@
       const plan = root.TimeTimeline.plan(cards, { start: start.value, rootIds: roots, settings: settings, calendar: calendar });
       const total = plan.tasks.reduce(function (sum, task) { return sum + task.total; }, 0);
       const overrun = plan.tasks.reduce(function (sum, task) { return sum + (task.nativeDone ? 0 : task.overrun); }, 0);
-      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + (overrun ? " to schedule (includes " + root.TimeDuration.formatDuration(overrun, settings) + " over ETA)" : " remaining") + " · " + plan.tasks.length + " work items";
+      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + (overrun ? " to schedule (includes " + root.TimeDuration.formatDuration(overrun, settings) + " over ETA)" : " planned") + " · " + plan.tasks.length + " work items";
       clear(warnings);
       plan.warnings.forEach(function (message) { warnings.appendChild(h("p", { class: "hint" }, message)); });
       clear(chart);
@@ -116,9 +116,15 @@
         if (row.start) {
           const left = (row.startTime != null ? row.startTime : Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000)) * px;
           const end = (row.finishTime != null ? row.finishTime : Math.round((Date.parse(row.finish || row.scheduledThrough || row.start) - Date.parse(start.value)) / 86400000) + 1) * px;
-          lane.appendChild(h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
+          const bar = h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
             style: "left:" + left + "px;width:" + Math.max(3, end - left - 1) + "px", title: [card ? card.name : row.id, row.status, overrunLabel, estimateLabel, root.TimeDuration.formatDuration(row.minutes, settings)].filter(Boolean).join(" · ")
-          }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings))));
+          }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings)));
+          if (row.overrunStartTime != null) {
+            const overrunLeft = Math.max(0, row.overrunStartTime * px - left);
+            const overrunEnd = row.overrunFinishTime != null ? row.overrunFinishTime * px : end;
+            bar.appendChild(h("div", { class: "timeline-overrun", style: "left:" + overrunLeft + "px;width:" + Math.max(3, overrunEnd - left - overrunLeft) + "px", title: overrunLabel }));
+          }
+          lane.appendChild(bar);
         } else lane.appendChild(h("span", { class: "timeline-blocked" }, row.status));
         rowHost.appendChild(line(label, lane, "timeline-work-row"));
       });

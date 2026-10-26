@@ -24,7 +24,7 @@ function harness(options = {}) {
 test("combined board page opens Timeline from a card, writes the calendar and preserves other shared keys", async () => {
   const h = harness(); await h.render();
   assert.match(h.host.textContent, /Timeline/);
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d remaining/,
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d planned/,
     "one card with ETA and no time entries gets a scheduled finish");
   assert.ok(h.host.querySelector(".timeline-bar"), "the minimum case draws a bar");
   h.host.querySelector('[aria-label="Default FTE"]').value = "0.5";
@@ -37,7 +37,7 @@ test("a group with one estimated child renders dates from the child without a gr
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "task", name: "Task" }],
     timeById: { epic: { e: [], lc: ["task"] }, task: { e: [], lim: 240 } } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h remaining/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h planned/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "child and grouping epic both appear on the timeline");
 });
 test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async () => {
@@ -50,10 +50,10 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
     task1: { e: [] }, task2: { e: [] }, phase1: { e: [] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w 2d remaining.*2 work items/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w 2d planned.*2 work items/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "Epic and Phase 0 have dated bars");
   assert.match(h.host.textContent, /Included in EPIC ETA/);
-  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
+  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
 });
 test("an over-limit phase and epic both draw bars with visible overrun and planned load", async () => {
   const h = harness({ rootId: "epic", cards: [
@@ -61,17 +61,22 @@ test("an over-limit phase and epic both draw bars with visible overrun and plann
     { id: "a", name: "Task 1" }, { id: "b", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
   ], timeById: {
     epic: { e: [], lim: 11520, lc: ["phase0", "phase1"] },
-    phase0: { e: [], lim: 240, lc: ["a", "b"] },
-    a: { e: [["a1", 20261021, 133, 0]] }, b: { e: [["b1", 20261020, 120, 0]] },
+    phase0: { e: [], lim: 3360, lc: ["a", "b"] },
+    a: { e: [["a1", 20261021, 3493, 0]] }, b: { e: [["b1", 20261020, 120, 0]] },
     phase1: { e: [], dep: ["phase0"] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*includes 13m over ETA/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*includes 4h 13m over ETA/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2);
   const overrunBar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.className.split(" ").includes("is-overrun"));
   assert.ok(overrunBar);
-  assert.match(overrunBar.getAttribute("title"), /Phase 0.*Over ETA by 13m.*ETA 4h · Spent 4h 13m/);
-  assert.match(h.host.textContent, /Over ETA by 13m/);
+  assert.match(overrunBar.getAttribute("title"), /Phase 0.*Over ETA by 4h 13m.*ETA 1w 2d · Spent 1w 2d 4h 13m/);
+  assert.match(h.host.textContent, /Over ETA by 4h 13m/);
+  const style = overrunBar.getAttribute("style");
+  assert.ok(Number(/width:([\d.]+)px/.exec(style)[1]) > 9 * 22, "the phase bar includes seven workdays and its overrun");
+  const segment = overrunBar.querySelector(".timeline-overrun");
+  assert.ok(segment, "only the trailing overrun segment is red");
+  assert.equal(Number(/left:([\d.]+)px/.exec(segment.getAttribute("style"))[1]), 9 * 22);
   assert.doesNotMatch(h.host.textContent, /ETA exhausted|no reliable finish/);
   assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => / · 1 \/ 1 FTE/.test(day.getAttribute("title"))));
 });
@@ -115,12 +120,12 @@ test("timeline page recovers after a failed initial load and read-only viewers c
   assert.equal(h.writes(), 0);
 });
 
-test("timeline refresh reads native Trello Done and reopening returns remaining work to the plan", async () => {
+test("timeline refresh reads native Trello Done and reopening returns planned work to the plan", async () => {
   const h = harness(); h.setDone(true); await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
   assert.match(h.host.querySelector(".timeline-card-text").textContent, /Work/);
   assert.ok(h.host.querySelector(".is-done"));
   h.setDone(false); await h.render();
-  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
+  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
   assert.equal(h.host.querySelector(".is-done"), null);
 });

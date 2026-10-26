@@ -731,7 +731,7 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 .timeline-bar.is-group > span { display: none; }
 .timeline-bar.is-partial { background: var(--orange); }
 .timeline-bar.is-done { background: var(--green); }
-.timeline-bar.is-overrun { background: var(--red); }
+.timeline-bar > .timeline-overrun { position: absolute; top: 0; bottom: 0; background: var(--red); border-radius: 0 2px 2px 0; }
 .timeline-blocked { position: absolute; top: 18px; left: 10px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .timeline-dependency-lines { position: absolute; top: 0; left: var(--label-width); z-index: 2; pointer-events: none; overflow: hidden; }
 .timeline-dependency-lines path { stroke: var(--muted); stroke-width: 1; fill: none; opacity: 0.65; }
