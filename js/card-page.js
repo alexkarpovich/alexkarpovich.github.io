@@ -66,7 +66,7 @@
       onDependencyRemove: function (id) { return withSaving(function () { return mutate(function (state) { state.dependencyIds = state.dependencyIds.filter(function (key) { return key !== id; }); return state; }); }); },
       onPlanning: function (planning, minutes) { return withSaving(function () { return mutate(function (state) { state.planning = window.TimeModel.normalizePlanning(planning); state.limitMinutes = minutes; return state; }); }); },
       onInspectDependencies: onInspectDependencies,
-      onTimeline: function () { return t.modal({ title: "Timeline", url: "./timeline.html", fullscreen: true, args: { rootId: current.cardId } }); }
+      onTimeline: function () { return t.modal({ title: "Time report and timeline", url: "./report.html", fullscreen: true, args: { view: "timeline", rootId: current.cardId } }); }
     });
     if (window.ResizeObserver) {
       let queued = false;

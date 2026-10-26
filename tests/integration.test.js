@@ -7,6 +7,7 @@ const model = require("../js/model");
 const duration = require("../js/duration");
 const epic = require("../js/epic");
 const runtime = require("../js/runtime");
+const { createDom } = require("./helpers/dom");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function runPage(name, window, extra = {}) {
@@ -14,6 +15,14 @@ function runPage(name, window, extra = {}) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../js", name), "utf8"), {
     window, URL, console, ...extra
   });
+}
+
+function runBoardPage(window) {
+  const dom = createDom(), app = dom.host();
+  app.id = "app";
+  Object.assign(dom.window, window, { TimeDom: dom.window.TimeDom });
+  dom.run("board-page.js");
+  return app;
 }
 
 function cardHarness(overrides = {}, environment = {}) {
@@ -150,7 +159,7 @@ test("reports and badges share owned links and ignore checklist selection", asyn
   const data = new Map([[root.id, { lc: ["a"], lim: 120, e: [] }], ["a", { e: [["a", 20261020, 30, 0]] }], ["b", { e: [["b", 20261020, 90, 0]] }]]);
   let render, latest, capabilities;
   const client = {
-    getContext: () => ({ board: "links-board", card: root.id }), render: callback => { render = callback; },
+    getContext: () => ({ board: "links-board", card: root.id }), arg: () => null, render: callback => { render = callback; },
     lists: async () => [], card: async () => root, cards: async () => cards,
     get: async (id, visibility, key) => id === "board" ? null : key === "time" ? data.get(id) : { time: data.get(id === "card" ? root.id : id) }
   };
@@ -161,7 +170,7 @@ test("reports and badges share owned links and ignore checklist selection", asyn
     TimeDom: { clear() {} }, TimeReportView: { mount: () => ({ filters: () => ({ from: "2026-10-01", to: "2026-10-31" }), update: value => { latest = value; } }) },
     TrelloPowerUp: { iframe: () => client, initialize: value => { capabilities = value; } }
   };
-  runPage("report-page.js", window, { document: { getElementById: () => ({}) } });
+  runBoardPage(window);
   runPage("connector.js", window);
   await render();
   assert.equal(latest.epics[0].remainingMinutes, 90);
@@ -413,8 +422,6 @@ test("report recovers from an initial failure and does not read inaccessible chi
   let latest;
   let fail = true;
   const reads = [];
-  const app = { textContent: "" };
-  const banner = { hidden: true };
   const window = {
     parent: {}, TimeRuntime: runtime, TimeDuration: duration, TimeModel: model, TimeEpic: epic,
     TimeAggregate: require("../js/aggregate"),
@@ -425,6 +432,7 @@ test("report recovers from an initial failure and does not read inaccessible chi
       update: value => { latest = value; }
     }) },
     TrelloPowerUp: { iframe: () => ({
+      arg: () => null,
       render: callback => { render = callback; },
       lists: async () => [],
       cards: async () => {
@@ -437,12 +445,12 @@ test("report recovers from an initial failure and does not read inaccessible chi
       }
     }) }
   };
-  runPage("report-page.js", window, { document: { getElementById: id => id === "app" ? app : banner } });
+  const app = runBoardPage(window);
   await render();
   assert.match(app.textContent, /offline/);
   fail = false;
   await render();
-  assert.equal(app.textContent, "");
+  assert.equal(app.querySelector("#board-report").textContent, "");
   assert.equal(latest.epics.length, 0, "no readable task activity in this period");
   assert.equal(reads.includes("gone"), false);
 });
@@ -507,15 +515,21 @@ test("authorization capabilities return Trello's contract and open an embedded s
   runPage("connector.js", window);
   let authorized = false;
   let popup;
+  let modal;
   const client = {
     getRestApi: () => ({ isAuthorized: () => authorized }),
-    popup: async options => { popup = options; }
+    popup: async options => { popup = options; },
+    modal: async options => { modal = options; }
   };
   assert.equal((await capabilities["authorization-status"](client)).authorized, false);
   authorized = true;
   assert.equal((await capabilities["authorization-status"](client)).authorized, true);
   await capabilities["show-authorization"](client);
   assert.equal(popup.url, "./settings.html");
+  const buttons = capabilities["board-buttons"]();
+  assert.equal(buttons.length, 1, "report and timeline share one board entry");
+  await buttons[0].callback(client);
+  assert.equal(modal.url, "./report.html");
 });
 
 test("report uses owned links without checklist authorization and marks unreadable logs", async t => {
@@ -524,12 +538,12 @@ test("report uses owned links without checklist authorization and marks unreadab
   let notice;
   let authorized = false;
   let failed = false;
-  const banner = { hidden: true, appendChild() {} };
   const cards = [
     { id: "epic", name: "Epic", shortLink: "epic", checklists: [{ id: "list", checkItems: [] }] },
     { id: "child", name: "Task", shortLink: "task", checklists: [] }
   ];
   const client = {
+    arg: () => null,
     render: callback => { render = callback; },
     cards: async () => cards, lists: async () => [], board: async () => ({ id: "board" }),
     getRestApi: () => ({ isAuthorized: () => authorized, getToken: () => authorized ? "token" : null }),
@@ -557,12 +571,12 @@ test("report uses owned links without checklist authorization and marks unreadab
     }) },
     TrelloPowerUp: { iframe: () => client }
   };
-  runPage("report-page.js", window, { document: { getElementById: id => id === "app" ? {} : banner } });
+  const app = runBoardPage(window);
   await render();
-  assert.equal(banner.hidden, true);
+  assert.equal(app.querySelector(".banner"), null);
   authorized = true;
   await render();
-  assert.equal(banner.hidden, true);
+  assert.equal(app.querySelector(".banner"), null);
   assert.equal(latest.epics[0].remainingMinutes, 150);
   failed = true;
   await render();
@@ -724,8 +738,9 @@ test("card planning and dependencies persist with source logs, detect inherited 
     ["a", { time: { lim: 480, who: [["me", "Me"]], e: [["log", 20261026, 30, 0]] } }],
     ["b", { time: { lim: 480, e: [] } }]
   ]);
-  let current = "e2", writes = 0;
+  let current = "e2", writes = 0, modal;
   const h = cardHarness({
+    modal: async options => { modal = options; },
     card: async () => cards.find(card => card.id === current),
     cards: async () => cards,
     getContext: () => ({ board: "dependency-board", permissions: { board: "write" } }),
@@ -738,6 +753,10 @@ test("card planning and dependencies persist with source logs, detect inherited 
     remove: async (scope, visibility, key) => { delete data.get(scope)[key]; }
   });
   await h.render();
+  await h.handlers().onTimeline();
+  assert.equal(modal.url, "./report.html");
+  assert.equal(modal.args.view, "timeline");
+  assert.equal(modal.args.rootId, "e2");
   await h.handlers().onDependencyAdd("Epic One", "e1");
   assert.deepEqual(data.get("e2").time.dep, ["e1"]);
   assert.deepEqual(h.latest().dependencies.map(card => card.id), ["e1"]);

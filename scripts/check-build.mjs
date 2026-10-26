@@ -14,7 +14,7 @@ for (const [file, sizes] of Object.entries(manifest.assets)) {
 
 const connectorHtml = await readFile(new URL("index.html", out), "utf8");
 assert.doesNotMatch(connectorHtml, /rel="stylesheet"/, "the invisible connector must not wait for styles");
-for (const page of ["index", "card", "report", "timeline", "settings"]) {
+for (const page of ["index", "card", "report", "settings"]) {
   const html = await readFile(new URL(`${page}.html`, out), "utf8");
   assert.equal([...html.matchAll(/<script /g)].length, 2, "one SDK and one application script");
   assert.doesNotMatch(html, /power-up\.css|js\/|auth-callback/);

@@ -477,6 +477,11 @@ button:disabled,
 .trello-power-up .card-tabs button[aria-selected="true"], .panel .card-tabs button[aria-selected="true"] { border-bottom-color: var(--blue); color: var(--text); font-weight: 600; }
 .card-tabs button:hover { background: var(--btn-bg); }
 .card-tabs button:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
+.board-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.trello-power-up .board-tabs button { height: 38px; margin: 0 0 -1px; padding: 0 16px; border: 0; border-bottom: 2px solid transparent; border-radius: 3px 3px 0 0; background: transparent; box-shadow: none; color: var(--muted); cursor: pointer; }
+.trello-power-up .board-tabs button[aria-selected="true"] { border-bottom-color: var(--blue); color: var(--text); font-weight: 600; }
+.board-tabs button:hover { background: var(--btn-bg); }
+.board-tabs button:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
 .estimate-line { display: flex; align-items: center; gap: 6px; }
 .help-tip { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--muted); border-radius: 50%; font-size: 10px; line-height: 1; cursor: help; color: var(--muted); text-transform: none; }
 .child-details { margin-top: 6px; }
@@ -660,9 +665,9 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 .planning-actions { display: flex; align-items: center; gap: 10px; }
 .planning-form[hidden], .planning-preview[hidden] { display: none !important; }
 .timeline-calendar > summary { color: var(--muted); cursor: pointer; }
-.planning-form { display: grid; gap: 12px; margin-top: 12px !important; }
-.planning-estimate { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.planning-estimate input { width: 180px; }
+.planning-form { display: grid; gap: 14px; max-width: 320px; margin-top: 12px !important; }
+.planning-form .planning-estimate, .planning-form .fte-base { display: flex; align-items: flex-start; flex-direction: column; justify-content: flex-start; gap: 6px; }
+.planning-form .planning-estimate input, .planning-form .fte-base input { width: 180px; max-width: 100%; }
 .fte-base { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .fte-caption { display: inline-flex; align-items: center; gap: 6px; }
 .fte-base .help-tip { padding: 0; background: transparent; flex-shrink: 0; }
@@ -733,7 +738,7 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 .timeline-load-day { display: flex; align-items: flex-end; width: var(--day-width); height: 28px; padding: 0 1px; }
 .timeline-load-day > span { width: 100%; min-width: 1px; background: var(--blue); opacity: 0.65; border-radius: 2px 2px 0 0; }
 .timeline-note { margin-top: 12px; max-width: 850px; }
-.timeline input:focus-visible, .card-planning input:focus-visible, .card-planning-top input:focus-visible { outline: 2px solid var(--ds-border-focused, #85b8ff); outline-offset: 1px; }
+.timeline input:focus-visible, .card-planning input:focus-visible { outline: 2px solid var(--ds-border-focused, #85b8ff); outline-offset: 1px; }
 .preview-timeline { margin-top: 24px; padding: 20px; }
 @media (max-width: 600px) {
   .timeline-scroll { --label-width: 205px; }
@@ -741,5 +746,4 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
   .timeline-toolbar > label:first-child { max-width: none; flex-basis: 100%; }
   .timeline-heading h1 { font-size: 20px; }
   .preview-timeline { padding: 12px; }
-  .planning-estimate { align-items: flex-start; flex-direction: column; }
 }
