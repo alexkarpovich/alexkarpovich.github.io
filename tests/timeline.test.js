@@ -138,6 +138,27 @@ test("estimated children keep their own dependencies under an estimated parent",
   assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
+test("an exhausted phase cannot block independent epic work through an unestimated sibling", () => {
+  const p = plan([
+    group("epic", ["phase0", "phase1"], { limitMinutes: 11520 }),
+    group("phase0", ["a", "b"], { limitMinutes: 240 }),
+    task("a", null, { entries: [{ minutes: 133 }] }),
+    task("b", null, { entries: [{ minutes: 120 }] }),
+    task("phase1", null, { dependencyIds: ["phase0"] })
+  ], { calendar: { baseFte: 1 } });
+  const epic = p.tasks.find(item => item.id === "epic");
+  assert.deepEqual(epic.deps, []);
+  assert.equal(epic.total, 11267);
+  assert.equal(epic.start, start);
+  assert.equal(epic.finish, "2026-11-26");
+  assert.equal(p.rows.get("epic").start, start);
+  assert.equal(p.rows.get("epic").scheduledThrough, epic.finish);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 11267);
+  assert.match(p.rows.get("phase0").status, /ETA exhausted/);
+  assert.equal(p.complete, false, "the exhausted phase still needs completion or a revised ETA");
+  assert.equal(p.finish, null);
+});
+
 test("missing estimates, exhausted estimates and unavailable dependencies cannot imply completion", () => {
   for (const first of [task("a", null), task("a", 480, { entries: [{ minutes: 480 }] }), task("a", 480, { missing: true })]) {
     const p = plan([first, task("b", 480, { dependencyIds: ["a"] })]);

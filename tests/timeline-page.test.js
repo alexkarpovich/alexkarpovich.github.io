@@ -55,6 +55,23 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
   assert.match(h.host.textContent, /Included in EPIC ETA/);
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
 });
+test("an over-limit phase keeps a partial epic bar and planned load visible", async () => {
+  const h = harness({ rootId: "epic", cards: [
+    { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
+    { id: "a", name: "Task 1" }, { id: "b", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
+  ], timeById: {
+    epic: { e: [], lim: 11520, lc: ["phase0", "phase1"] },
+    phase0: { e: [], lim: 240, lc: ["a", "b"] },
+    a: { e: [["a1", 20261021, 133, 0]] }, b: { e: [["b1", 20261020, 120, 0]] },
+    phase1: { e: [], dep: ["phase0"] }
+  } });
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast incomplete/);
+  assert.ok(h.host.querySelector(".timeline-bar.is-partial"));
+  assert.match(h.host.textContent, /ETA exhausted/);
+  assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => / · 1 \/ 1 FTE/.test(day.getAttribute("title"))));
+});
+
 test("board tabs load each view on demand and retain the report when switching back", async () => {
   const h = harness({ initialView: "report" }); await h.render();
   assert.equal(h.host.querySelector('#board-report-tab').getAttribute('aria-selected'), 'true');

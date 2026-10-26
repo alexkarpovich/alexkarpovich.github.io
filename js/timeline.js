@@ -136,9 +136,12 @@
     roots.forEach(prioritize); scope.forEach(prioritize);
     function workDependencies(id) {
       const dependencies = new Set(g.dependencies(id));
-      // Dependencies on unestimated children still gate the ETA that covers them.
+      // External prerequisites still gate the covering ETA. Dependencies between
+      // children must not block the parent's independent work.
       estimateOwner.forEach(function (owner, child) {
-        if (owner === id) g.dependencies(child).forEach(function (dep) { dependencies.add(dep); });
+        if (owner === id) g.dependencies(child).forEach(function (dep) {
+          if (dep !== id && !g.ancestors(dep).has(id)) dependencies.add(dep);
+        });
       });
       return Array.from(new Set(Array.from(dependencies).flatMap(function (dep) {
         return estimateOwner.has(dep) ? [estimateOwner.get(dep)] : leaves(dep);
@@ -148,7 +151,8 @@
       const card = g.byId.get(id), done = !!card && (estimatedGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
       const remaining = done ? 0 : card && card.limitMinutes != null
         ? Math.max(0, card.limitMinutes - (estimatedGroups.has(id) ? aggregateSpent(id) : (card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0))) : null;
-      const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" : !done && (!remaining || remaining < EPS) ? "Set or increase ETA" : "";
+      const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
+        !done && (!remaining || remaining < EPS) ? (card.limitMinutes == null ? "Set ETA" : "ETA exhausted · mark work done or increase ETA") : "";
       return { id: id, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
         start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null,
         deps: workDependencies(id),
