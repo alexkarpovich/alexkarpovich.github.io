@@ -36,12 +36,12 @@
     <ol>
       <li>Build and verify with <code>npm ci &amp;&amp; npm run check</code>. Publish the contents of <code>dist/</code>.</li>
       <li>Deploy to Cloudflare Pages with build command <code>npm run check</code> and output directory <code>dist</code>. The included <code>_headers</code> configures HSTS and CSP; GitHub Pages cannot apply these custom headers.</li>
-      <li>Use <code>https://YOUR-PROJECT.pages.dev/</code> as your site URL.</li>
-      <li>Create a Power-Up at <a href="https://trello.com/apps/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://YOUR-PROJECT.pages.dev/index.html</code>.</li>
+      <li>Use <code>https://alexkarpovich-github-io.pages.dev/</code> as your site URL.</li>
+      <li>Create a Power-Up at <a href="https://trello.com/apps/admin">Trello Power-Up admin</a>. Iframe connector URL: <code>https://alexkarpovich-github-io.pages.dev/index.html</code>.</li>
       <li>Enable capabilities: Board buttons, Card back section, Card badges, Card detail badges, Card buttons, Show settings, On enable, Authorization status, Show authorization.</li>
       <li>Add the Power-Up to a board.</li>
     </ol>
-    <p>Update Trello Auth Allowed Origins and the Privacy Policy URL when changing the hosting origin. Keep the existing Power-Up ID. Verify the deployed headers with <code>npm run check:security -- https://YOUR-PROJECT.pages.dev/index.html</code>.</p>
+    <p>Update Trello Auth Allowed Origins and the Privacy Policy URL when changing the hosting origin. Keep the existing Power-Up ID. Verify the deployed headers with <code>npm run check:security -- https://alexkarpovich-github-io.pages.dev/index.html</code>.</p>
     <p>API key is optional. Set it in <code>js/config.js</code> to enable optional read access for time logs unavailable through the SDK.</p>
 
     <h2>Storage</h2>

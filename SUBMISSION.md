@@ -1,6 +1,6 @@
 # Trello Power-Up submission — copy-paste values
 
-Replace **`SUPPORT_EMAIL`** everywhere (including `privacy.html`) before deploy. Replace **`POWER_UP_ID`** after you create the app in [Apps Admin](https://trello.com/apps/admin). Before re-review, deploy to a host that applies `dist/_headers` (see README → Security / Cloudflare Pages), then replace every `https://alexkarpovich.github.io` below with the new HTTPS origin. GitHub Pages cannot apply these custom response headers. Keep the existing Power-Up ID and API key when changing hosting.
+Replace **`SUPPORT_EMAIL`** everywhere (including `privacy.html`) before deploy. Replace **`POWER_UP_ID`** after you create the app in [Apps Admin](https://trello.com/apps/admin). Production hosting: Cloudflare Pages at `https://alexkarpovich-github-io.pages.dev`; publish `dist/` with `dist/_headers` (see README → Security / Cloudflare Pages). GitHub Pages cannot apply these custom response headers. Keep the existing Power-Up ID and API key when changing hosting.
 
 ---
 
@@ -8,13 +8,13 @@ Replace **`SUPPORT_EMAIL`** everywhere (including `privacy.html`) before deploy.
 
 | Field | Value |
 | --- | --- |
-| **Iframe Connector URL** | `https://alexkarpovich.github.io/index.html` |
-| **Privacy Policy URL** | `https://alexkarpovich.github.io/privacy.html` |
-| **About / support page (optional)** | `https://alexkarpovich.github.io/about.html` |
-| **API key Allowed Origins** (Trello Auth tab) | `https://alexkarpovich.github.io` (origin only — no path, no trailing slash) |
+| **Iframe Connector URL** | `https://alexkarpovich-github-io.pages.dev/index.html` |
+| **Privacy Policy URL** | `https://alexkarpovich-github-io.pages.dev/privacy.html` |
+| **About / support page (optional)** | `https://alexkarpovich-github-io.pages.dev/about.html` |
+| **API key Allowed Origins** (Trello Auth tab) | `https://alexkarpovich-github-io.pages.dev` (origin only — no path, no trailing slash) |
 | **Directory link (after launch)** | `https://trello.com/power-ups/POWER_UP_ID` |
 
-If you use a custom domain or project repo URL instead of user Pages, update connector, privacy, and Allowed Origins to match.
+If the hosting origin changes, update connector, privacy, and Allowed Origins to match.
 
 ---
 
@@ -23,11 +23,11 @@ If you use a custom domain or project repo URL instead of user Pages, update con
 | Admin field | Suggested value |
 | --- | --- |
 | **Name** (listing) | `Time Tracking` |
-| **Iframe Connector URL** | `https://alexkarpovich.github.io/index.html` |
+| **Iframe Connector URL** | `https://alexkarpovich-github-io.pages.dev/index.html` |
 | **Author / developer name** | `Aliaksandr Karpovich` |
 | **Support Email** | `SUPPORT_EMAIL` |
-| **Privacy Policy URL** | `https://alexkarpovich.github.io/privacy.html` |
-| **Website (optional)** | `https://alexkarpovich.github.io/about.html` |
+| **Privacy Policy URL** | `https://alexkarpovich-github-io.pages.dev/privacy.html` |
+| **Website (optional)** | `https://alexkarpovich-github-io.pages.dev/about.html` |
 | **Categories** | Productivity; Project management (pick closest available) |
 
 Avoid names like “Trello Time Tracking” or “Official Trello …” (trademark).
@@ -84,9 +84,9 @@ Free to use. Works on boards in your Workspace after you enable the Power-Up fro
 | Field | Value |
 | --- | --- |
 | **API key** | Generate in Apps Admin; must match `appKey` in `js/config.js` (currently `e7c6a3aac8963848b7706bf61469df27` — regenerate if this app is new) |
-| **Allowed Origins** | `https://alexkarpovich.github.io` |
+| **Allowed Origins** | `https://alexkarpovich-github-io.pages.dev` |
 
-OAuth redirect page: `https://alexkarpovich.github.io/auth-complete.html` (must be deployed; included in `dist/`).
+OAuth redirect page: `https://alexkarpovich-github-io.pages.dev/auth-complete.html` (must be deployed; included in `dist/`).
 
 ---
 
@@ -107,8 +107,8 @@ Workspace: [NAME OF YOUR TEST WORKSPACE — same as registered on the Power-Up]
 No third-party account. No payment. Public API key in static JS is intentional (Trello-allowed); user tokens are never in source code.
 
 Support: SUPPORT_EMAIL
-Privacy: https://alexkarpovich.github.io/privacy.html
-Connector: https://alexkarpovich.github.io/index.html
+Privacy: https://alexkarpovich-github-io.pages.dev/privacy.html
+Connector: https://alexkarpovich-github-io.pages.dev/index.html
 Power-Up ID: POWER_UP_ID
 ```
 
@@ -144,7 +144,7 @@ Power-Up ID: POWER_UP_ID
 - [ ] Add **screenshots or GIF** (card log, badge, report modal, settings)
 - [ ] Run `npm ci && npm run check`
 - [ ] Deploy `dist/` to Cloudflare Pages (or configure equivalent HTTP headers on your host)
-- [ ] Run `npm run check:security -- https://YOUR-HOST/index.html` and scan the new connector URL on securityheaders.com
+- [ ] Run `npm run check:security -- https://alexkarpovich-github-io.pages.dev/index.html` and scan the new connector URL on securityheaders.com
 - [ ] Update the existing Power-Up connector URL, privacy/website links and Trello Auth Allowed Origins to the new host
 - [ ] Verify Connect / Disconnect, themes, Timeline, and XLSX export on a real Trello board without CSP violations
 - [ ] Complete board test matrix in README on a real board
