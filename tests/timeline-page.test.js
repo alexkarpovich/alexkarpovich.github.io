@@ -50,7 +50,7 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
     task1: { e: [] }, task2: { e: [] }, phase1: { e: [] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w remaining.*1 work items/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w 2d remaining.*2 work items/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "Epic and Phase 0 have dated bars");
   assert.match(h.host.textContent, /Included in EPIC ETA/);
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);

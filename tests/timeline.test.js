@@ -74,24 +74,25 @@ test("without an epic ETA shared child estimates are counted once", () => {
   assert.equal(p.finish, start);
 });
 
-test("an explicit epic ETA takes priority while phase estimates remain visible", () => {
+test("epic and nested phase ETAs all contribute to the shared schedule", () => {
   const cards = [group("epic", ["phase0", "phase1"], { limitMinutes: 2880 }),
     group("phase0", ["a", "b"], { limitMinutes: 960 }),
     task("a", null, { entries: [{ minutes: 120 }] }), task("b", null), task("phase1", 480)];
   const p = plan(cards, { rootIds: ["epic"], calendar: { baseFte: 1 } });
-  assert.equal(p.tasks.length, 1);
+  assert.equal(p.tasks.length, 3);
   assert.equal(p.rows.get("phase0").minutes, 840, "logged child work reduces the phase ETA");
   assert.ok(p.rows.get("phase0").finish);
-  assert.equal(p.rows.get("epic").minutes, 2760, "the epic ETA overrides the phase total");
-  assert.equal(p.finish, "2026-11-02");
-  assert.match(p.warnings.join(" "), /own ETA overrides child totals/);
+  assert.equal(p.rows.get("epic").minutes, 4080, "the epic includes its own remaining ETA and all child estimates");
+  assert.equal(p.finish, "2026-11-05");
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 4080);
+  assert.deepEqual(p.warnings, []);
 });
 
 test("own epic ETA works with missing child ETA and preserves external dependencies", () => {
   const partial = plan([group("phase", ["a", "b"], { limitMinutes: 960 }), task("a", 480), task("b", null)]);
   assert.equal(partial.complete, true);
-  assert.equal(partial.tasks.length, 1);
-  assert.equal(partial.rows.get("phase").minutes, 960);
+  assert.equal(partial.tasks.length, 2);
+  assert.equal(partial.rows.get("phase").minutes, 1440);
   assert.ok(partial.rows.get("a").finish);
   assert.match(partial.rows.get("b").status, /Included in phase ETA/);
   const dependent = plan([group("phase", ["a"], { limitMinutes: 480 }), task("a", null, { dependencyIds: ["before"] }), task("before", 480)]);
@@ -99,12 +100,42 @@ test("own epic ETA works with missing child ETA and preserves external dependenc
   assert.ok(dependent.tasks.find(item => item.id === "phase").startTime >= dependent.tasks.find(item => item.id === "before").finishTime);
 });
 
-test("a child estimate cannot extend or add capacity to an explicit epic ETA", () => {
+test("a child ETA adds load and extends its parent and the overall forecast", () => {
   const p = plan([group("epic", ["task"], { limitMinutes: 480 }), task("task", 960)], { calendar: { baseFte: 1 } });
-  assert.equal(p.finish, start);
-  assert.equal(p.rows.get("epic").finish, start);
-  assert.equal(p.rows.get("task").finish, "2026-10-27");
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 480);
+  assert.equal(p.finish, "2026-10-28");
+  assert.equal(p.rows.get("epic").finish, "2026-10-28");
+  assert.equal(p.rows.get("task").finish, "2026-10-28");
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
+});
+
+test("estimated epics share caps with children and successors wait for the entire epic", () => {
+  const p = plan([group("epic", ["child"], { limitMinutes: 480, planning: { maxFte: 1 } }),
+    task("child", 960), task("after", 480, { dependencyIds: ["epic"] })], { rootIds: ["after"] });
+  assert.equal(p.rows.get("epic").minutes, 1440);
+  assert.equal(p.rows.get("epic").finish, "2026-10-28");
+  assert.equal(p.rows.get("after").start, "2026-10-29");
+  assert.ok(p.days.every(day => day.usedFte <= 1));
+});
+
+test("shared children contribute once even when both parents have explicit ETAs", () => {
+  const cards = [group("root", ["x", "y"]), group("x", ["a"], { limitMinutes: 480 }),
+    group("y", ["a"], { limitMinutes: 480 }), task("a", 480)];
+  const p = plan(cards, { rootIds: ["root"], calendar: { baseFte: 1 } });
+  assert.equal(p.tasks.length, 3);
+  assert.equal(p.rows.get("root").minutes, 1440);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
+  const child = plan(cards, { rootIds: ["a"] });
+  assert.deepEqual(child.tasks.map(item => item.id), ["a"]);
+  assert.equal(child.rows.get("a").minutes, 480);
+});
+
+test("estimated children keep their own dependencies under an estimated parent", () => {
+  const p = plan([group("epic", ["child"], { limitMinutes: 480 }),
+    task("child", 480, { dependencyIds: ["before"] }), task("before", 480)]);
+  const byId = new Map(p.tasks.map(item => [item.id, item]));
+  assert.ok(byId.get("child").startTime >= byId.get("before").finishTime);
+  assert.equal(p.complete, true);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
 test("missing estimates, exhausted estimates and unavailable dependencies cannot imply completion", () => {

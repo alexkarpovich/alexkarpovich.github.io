@@ -85,24 +85,23 @@
     const cycleIds = new Set(cycles(g, roots));
     const warnings = [];
     if (cycleIds.size) warnings.push("Circular links block the affected work. Remove the cycle to calculate its dates.");
-    // An explicit group ETA overrides its child totals. Child estimates remain visible as detail.
-    const aggregateGroups = new Set(cards.filter(function (card) {
+    // Every explicit ETA contributes work; only unestimated leaves use a parent's ETA.
+    const estimatedGroups = new Set(cards.filter(function (card) {
       const kids = card.linkedIds || card.kids || [];
       return !card.missing && card.limitMinutes != null && kids.length;
     }).map(function (card) { return card.id; }));
-    const aggregateOwner = new Map();
-    aggregateGroups.forEach(function (id) {
-      if (!scope.has(id) || Array.from(g.ancestors(id)).some(function (parent) { return scope.has(parent) && aggregateGroups.has(parent); })) return;
-      function mark(child, path) {
-        if (path.has(child)) return;
-        path = new Set(path); path.add(child);
-        aggregateOwner.set(child, id);
-        const card = g.byId.get(child);
-        if (card) (card.linkedIds || card.kids || []).forEach(function (kid) { mark(kid, path); });
+    const estimateOwner = new Map();
+    scope.forEach(function (id) {
+      const card = g.byId.get(id);
+      if (!card || card.missing || card.limitMinutes != null || card.dueComplete || (card.linkedIds || card.kids || []).length) return;
+      const queue = (g.parents.get(id) || []).slice(), seen = new Set([id]);
+      for (const parent of queue) {
+        if (seen.has(parent)) continue;
+        seen.add(parent);
+        if (scope.has(parent) && estimatedGroups.has(parent)) { estimateOwner.set(id, parent); break; }
+        queue.push(...(g.parents.get(parent) || []));
       }
-      (g.byId.get(id).linkedIds || g.byId.get(id).kids || []).forEach(function (child) { mark(child, new Set([id])); });
     });
-    if (Array.from(aggregateGroups).some(function (id) { return scope.has(id); })) warnings.push("An epic's own ETA overrides child totals. Child bars show separate estimates; they do not add to the epic's planned load.");
     function aggregateSpent(id) {
       const seen = new Set();
       function total(key) {
@@ -121,49 +120,41 @@
       if (path.has(id)) return [id];
       path.add(id);
       const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
-      const ids = aggregateGroups.has(id) || !kids || !kids.length ? [id] : Array.from(new Set(kids.flatMap(function (kid) { return leaves(kid, path); })));
+      const ids = !kids || !kids.length ? (estimateOwner.has(id) ? [] : [id]) :
+        Array.from(new Set((estimatedGroups.has(id) ? [id] : []).concat(kids.flatMap(function (kid) { return leaves(kid, path); }))));
       leafCache.set(id, ids); return ids;
     }
     // DFS in saved child order determines priority; shared work appears only once.
     const order = [], ordered = new Set();
     function prioritize(id) {
-      if (aggregateOwner.has(id) && scope.has(aggregateOwner.get(id))) return;
+      if (estimateOwner.has(id) && scope.has(estimateOwner.get(id))) return;
       if (ordered.has(id)) return; ordered.add(id);
       const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
-      if (aggregateGroups.has(id) || !kids || !kids.length) order.push(id); else kids.forEach(prioritize);
+      if (estimatedGroups.has(id) || !kids || !kids.length) order.push(id);
+      if (kids) kids.forEach(prioritize);
     }
     roots.forEach(prioritize); scope.forEach(prioritize);
     function workDependencies(id) {
       const dependencies = new Set(g.dependencies(id));
-      if (aggregateGroups.has(id)) {
-        const seen = new Set([id]);
-        function visit(key) {
-          if (seen.has(key)) return;
-          seen.add(key);
-          const card = g.byId.get(key);
-          if (!card) return;
-          (card.dependencyIds || []).forEach(function (dep) { dependencies.add(dep); });
-          (card.linkedIds || card.kids || []).forEach(visit);
-        }
-        const card = g.byId.get(id);
-        (card.linkedIds || card.kids || []).forEach(visit);
-        seen.forEach(function (key) { dependencies.delete(key); });
-      }
+      // Dependencies on unestimated children still gate the ETA that covers them.
+      estimateOwner.forEach(function (owner, child) {
+        if (owner === id) g.dependencies(child).forEach(function (dep) { dependencies.add(dep); });
+      });
       return Array.from(new Set(Array.from(dependencies).flatMap(function (dep) {
-        return aggregateOwner.has(dep) ? [aggregateOwner.get(dep)] : leaves(dep);
+        return estimateOwner.has(dep) ? [estimateOwner.get(dep)] : leaves(dep);
       }))).filter(function (dep) { return dep !== id; });
     }
     const tasks = order.map(function (id) {
-      const card = g.byId.get(id), done = !!card && (aggregateGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
+      const card = g.byId.get(id), done = !!card && (estimatedGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
       const remaining = done ? 0 : card && card.limitMinutes != null
-        ? Math.max(0, card.limitMinutes - (aggregateGroups.has(id) ? aggregateSpent(id) : (card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0))) : null;
+        ? Math.max(0, card.limitMinutes - (estimatedGroups.has(id) ? aggregateSpent(id) : (card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0))) : null;
       const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" : !done && (!remaining || remaining < EPS) ? "Set or increase ETA" : "";
       return { id: id, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
         start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null,
         deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
           const ancestor = g.byId.get(key), setting = ancestor && ancestor.planning || {};
-          return { id: key, calendar: normalizeCalendar({ baseFte: setting.maxFte, changes: setting.changes }, key === id && !aggregateGroups.has(id) ? 1 : 100) };
+          return { id: key, calendar: normalizeCalendar({ baseFte: setting.maxFte, changes: setting.changes }, key === id && !estimatedGroups.has(id) ? 1 : 100) };
         }) };
     });
     const byTask = new Map(tasks.map(function (task) { return [task.id, task]; }));
@@ -209,31 +200,12 @@
       const finishes = items.map(function (task) { return task.finish; }).filter(Boolean).sort();
       const scheduledThrough = items.map(function (task) { return task.lastDate || task.finish; }).filter(Boolean).sort().pop() || null;
       const issues = Array.from(new Set(items.map(function (task) { return task.issue; }).filter(Boolean)));
-      const owner = aggregateOwner.get(id), ownerCard = owner && g.byId.get(owner);
+      const owner = estimateOwner.get(id), ownerCard = owner && g.byId.get(owner);
       const status = owner && !items.length ? "Included in " + (ownerCard ? ownerCard.name : "parent") + " ETA" :
-        complete ? (items.every(function (task) { return task.total === 0; }) ? "Done" : aggregateGroups.has(id) ? "Scheduled from group ETA" : "Scheduled") :
+        complete ? (items.every(function (task) { return task.total === 0; }) ? "Done" : "Scheduled") :
           issues.join(" · ") || "Blocked / beyond 10-year horizon";
       rows.set(id, { id: id, card: card, start: starts[0] || (complete ? options.start : null), finish: complete ? finishes[finishes.length - 1] : null,
         scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
-    });
-    if (options.details !== false && !cycleIds.size) tasks.forEach(function (task) {
-      if (!aggregateGroups.has(task.id) || !task.start) return;
-      const descendants = new Set();
-      function collect(id) {
-        if (descendants.has(id)) return;
-        descendants.add(id);
-        const card = g.byId.get(id);
-        if (card) (card.linkedIds || card.kids || []).forEach(collect);
-      }
-      const kids = g.byId.get(task.id).linkedIds || g.byId.get(task.id).kids || [];
-      kids.forEach(collect);
-      const detailCards = cards.map(function (card) { return Object.assign({}, card, {
-        dependencyIds: (card.dependencyIds || []).filter(function (id) { return descendants.has(id); })
-      }); });
-      const detail = plan(detailCards, Object.assign({}, options, { rootIds: kids, start: task.start }));
-      detail.rows.forEach(function (row, id) {
-        if (descendants.has(id) && row.start) rows.set(id, Object.assign({}, row, { status: "Child ETA · " + row.status }));
-      });
     });
     const incomplete = tasks.filter(function (task) { return !task.done; });
     if (incomplete.length) warnings.push(incomplete.length + " work item(s) have no reliable finish. Check ETA, dependencies and available FTE.");

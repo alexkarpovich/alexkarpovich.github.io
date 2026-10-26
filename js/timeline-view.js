@@ -26,7 +26,7 @@
       h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Remaining work, dependencies and shared team capacity")]), refresh]),
       h("div", { class: "timeline-toolbar" }, [h("label", null, ["Project", project]), h("label", null, ["Forecast from", start]), h("label", null, ["Scale", scale])]),
       details, error, summary, warnings, chart,
-      h("p", { class: "hint timeline-note" }, "An epic's own ETA takes priority over child estimates. Without its own ETA, dates come from child work. Child bars under an estimated epic show detail without adding to its planned load. Only visible cards in open lists are included.")
+      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Epic dates cover its own work and all child work. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
     ]));
     form.addEventListener("submit", async function (event) {
       event.preventDefault(); if (saving || !writable) return;
