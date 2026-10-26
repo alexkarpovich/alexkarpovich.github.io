@@ -10,7 +10,7 @@ const out = path.join(root, "dist");
 const pages = ["index", "card", "report", "settings", "auth-complete", "about", "privacy", "preview"];
 // Preview also includes interactive regression checks; production card includes accessible card-name autocomplete.
 // Settings includes bounded save waits. Card/preview include dependencies, planning and the FTE calendar.
-const budgets = { index: 34000, card: 76000, report: 76000, settings: 22500, "auth-complete": 2000, preview: 88000 };
+const budgets = { index: 34000, card: 78000, report: 76000, settings: 22500, "auth-complete": 2000, preview: 90000 };
 const manifest = { pages: {}, assets: {} };
 
 // Only this script's output directory is replaced. Sources remain runnable.

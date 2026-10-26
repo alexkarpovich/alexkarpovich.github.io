@@ -9,10 +9,10 @@ function harness(options = {}) {
   let shared = options.shared || { unrelated: "preserved" };
   const client = {
     getContext: () => ({ permissions: { board: options.readonly ? "read" : "write" } }),
-    arg: key => key === "view" ? options.initialView || "timeline" : key === "rootId" ? "task" : null,
-    cards: async (...fields) => { if (fail) throw new Error("offline"); if (fields.includes("dueComplete")) timelineLoads++; else reportLoads++; return [{ id: "task", name: "Work", dueComplete, labels: [] }]; },
+    arg: key => key === "view" ? options.initialView || "timeline" : key === "rootId" ? options.rootId || "task" : null,
+    cards: async (...fields) => { if (fail) throw new Error("offline"); if (fields.includes("dueComplete")) timelineLoads++; else reportLoads++; return options.cards || [{ id: "task", name: "Work", dueComplete, labels: [] }]; },
     lists: async () => [],
-    get: async (scope, visibility, key, fallback) => scope === "board" ? key ? shared[key] ?? fallback : structuredClone(shared) : { lim: 480, e: [] },
+    get: async (scope, visibility, key, fallback) => scope === "board" ? key ? shared[key] ?? fallback : structuredClone(shared) : options.timeById ? options.timeById[scope] || null : { lim: 480, e: [] },
     set: async (scope, visibility, key, value) => { if (options.rejectSave) throw new Error("offline write"); assert.equal(scope, "board"); assert.equal(key, "timeline"); shared[key] = structuredClone(value); writes++; },
     render: fn => { render = fn; }
   };
@@ -24,11 +24,36 @@ function harness(options = {}) {
 test("combined board page opens Timeline from a card, writes the calendar and preserves other shared keys", async () => {
   const h = harness(); await h.render();
   assert.match(h.host.textContent, /Timeline/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d remaining/,
+    "one card with ETA and no time entries gets a scheduled finish");
+  assert.ok(h.host.querySelector(".timeline-bar"), "the minimum case draws a bar");
   h.host.querySelector('[aria-label="Default FTE"]').value = "0.5";
   await h.host.querySelector("form").fire("submit");
   assert.equal(h.writes(), 1);
   assert.equal(h.shared().unrelated, "preserved");
   assert.equal(h.shared().timeline.baseFte, 0.5);
+});
+test("a group with one estimated child renders dates from the child without a group ETA", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "task", name: "Task" }],
+    timeById: { epic: { e: [], lc: ["task"] }, task: { e: [], lim: 240 } } });
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h remaining/);
+  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "child and grouping epic both appear on the timeline");
+});
+test("an epic with ETA only on its phases still draws a useful timeline", async () => {
+  const h = harness({ rootId: "epic", cards: [
+    { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
+    { id: "task1", name: "Task 1" }, { id: "task2", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
+  ], timeById: {
+    epic: { e: [], lim: 2400, lc: ["phase0", "phase1"] },
+    phase0: { e: [], lim: 960, lc: ["task1", "task2"] },
+    task1: { e: [] }, task2: { e: [] }, phase1: { e: [], lim: 480 }
+  } });
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*3d remaining.*2 work items/);
+  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 3, "epic and both phases have dated bars");
+  assert.match(h.host.textContent, /Included in Phase 0 ETA/);
+  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
 });
 test("board tabs load each view on demand and retain the report when switching back", async () => {
   const h = harness({ initialView: "report" }); await h.render();

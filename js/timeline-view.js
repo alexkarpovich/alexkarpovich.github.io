@@ -26,7 +26,7 @@
       h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Remaining work, dependencies and shared team capacity")]), refresh]),
       h("div", { class: "timeline-toolbar" }, [h("label", null, ["Project", project]), h("label", null, ["Forecast from", start]), h("label", null, ["Scale", scale])]),
       details, error, summary, warnings, chart,
-      h("p", { class: "hint timeline-note" }, "Child order sets priority when capacity is limited. Shared tasks use capacity once. Group estimates are budgets; their dates come from child work. Only visible cards in open lists are included.")
+      h("p", { class: "hint timeline-note" }, "Child order sets priority when capacity is limited. Shared tasks use capacity once. Group ETA is used as one work block only when its children have no ETA; otherwise group dates come from child work. Only visible cards in open lists are included.")
     ]));
     form.addEventListener("submit", async function (event) {
       event.preventDefault(); if (saving || !writable) return;
@@ -49,7 +49,7 @@
       if (!roots.length && !selected) cards.forEach(function (card) { roots.push(card.id); });
       const plan = root.TimeTimeline.plan(cards, { start: start.value, rootIds: roots, settings: settings, calendar: calendar });
       const total = plan.tasks.reduce(function (sum, task) { return sum + task.total; }, 0);
-      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + " remaining · " + plan.tasks.length + " unique tasks";
+      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + " remaining · " + plan.tasks.length + " work items";
       clear(warnings);
       plan.warnings.forEach(function (message) { warnings.appendChild(h("p", { class: "hint" }, message)); });
       clear(chart);

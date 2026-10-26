@@ -74,6 +74,29 @@ test("shared work is scheduled and counted once, grouping epic budgets and logs 
   assert.equal(p.finish, start);
 });
 
+test("a phase ETA schedules an aggregate block when its child tasks have no ETA", () => {
+  const cards = [group("epic", ["phase0", "phase1"], { limitMinutes: 2880 }),
+    group("phase0", ["a", "b"], { limitMinutes: 960 }),
+    task("a", null, { entries: [{ minutes: 120 }] }), task("b", null), task("phase1", 480)];
+  const p = plan(cards, { rootIds: ["epic"], calendar: { baseFte: 1 } });
+  assert.equal(p.tasks.length, 2, "phase 0 is one work block, not two invented child estimates");
+  assert.equal(p.tasks.find(item => item.id === "phase0").total, 840, "logged child work reduces the phase ETA");
+  assert.equal(p.rows.get("phase0").status, "Scheduled from group ETA");
+  assert.equal(p.rows.get("a").status, "Included in phase0 ETA");
+  assert.equal(p.rows.get("epic").minutes, 1320, "the root budget is not added to its phases");
+  assert.equal(p.finish, "2026-10-28");
+  assert.match(p.warnings.join(" "), /Individual child dates cannot be calculated/);
+});
+
+test("a group ETA never conceals a partially estimated or dependent child", () => {
+  const partial = plan([group("phase", ["a", "b"], { limitMinutes: 960 }), task("a", 480), task("b", null)]);
+  assert.equal(partial.complete, false);
+  assert.equal(partial.tasks.length, 2);
+  assert.equal(partial.rows.get("b").status, "Set or increase ETA");
+  const dependent = plan([group("phase", ["a"], { limitMinutes: 480 }), task("a", null, { dependencyIds: ["before"] }), task("before", 480)]);
+  assert.equal(dependent.complete, false, "the aggregate fallback cannot erase child-specific dependencies");
+});
+
 test("missing estimates, exhausted estimates and unavailable dependencies cannot imply completion", () => {
   for (const first of [task("a", null), task("a", 480, { entries: [{ minutes: 480 }] }), task("a", 480, { missing: true })]) {
     const p = plan([first, task("b", 480, { dependencyIds: ["a"] })]);
