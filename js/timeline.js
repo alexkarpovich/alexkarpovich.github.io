@@ -130,8 +130,8 @@
       if (estimateOwner.has(id) && scope.has(estimateOwner.get(id))) return;
       if (ordered.has(id)) return; ordered.add(id);
       const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
-      if (estimatedGroups.has(id) || !kids || !kids.length) order.push(id);
       if (kids) kids.forEach(prioritize);
+      if (estimatedGroups.has(id) || !kids || !kids.length) order.push(id);
     }
     roots.forEach(prioritize); scope.forEach(prioritize);
     function workDependencies(id) {
@@ -149,11 +149,14 @@
     }
     const tasks = order.map(function (id) {
       const card = g.byId.get(id), done = !!card && (estimatedGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
-      const remaining = done ? 0 : card && card.limitMinutes != null
-        ? Math.max(0, card.limitMinutes - (estimatedGroups.has(id) ? aggregateSpent(id) : (card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0))) : null;
+      const spent = estimatedGroups.has(id) ? aggregateSpent(id) : (card && card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0);
+      const estimate = card && card.limitMinutes;
+      const overrun = estimate != null ? Math.max(0, spent - estimate) : 0;
+      // An overrun is a delay to allocate, rather than a missing estimate.
+      const remaining = done ? 0 : estimate != null ? Math.max(0, estimate - spent) + overrun : null;
       const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
-        !done && (!remaining || remaining < EPS) ? (card.limitMinutes == null ? "Set ETA" : "ETA exhausted · mark work done or increase ETA") : "";
-      return { id: id, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
+        !done && remaining == null ? "Set ETA" : "";
+      return { id: id, estimate: estimate, spent: spent, overrun: overrun, nativeDone: done, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
         start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null,
         deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
@@ -162,6 +165,18 @@
         }) };
     });
     const byTask = new Map(tasks.map(function (task) { return [task.id, task]; }));
+    function ready(task) { return !task.deps.some(function (id) { return !byTask.has(id) || !byTask.get(id).done; }); }
+    function settleMilestones(ymd, time) {
+      let changed;
+      do {
+        changed = false;
+        tasks.forEach(function (task) {
+          if (task.done || task.issue || task.remaining > EPS || !ready(task)) return;
+          task.start = task.finish = ymd; task.startTime = task.finishTime = time;
+          task.done = true; changed = true;
+        });
+      } while (changed);
+    }
     const days = [];
     const hours = Number(options.settings && options.settings.hoursPerDay) || 8;
     const excluded = new Set(options.settings && options.settings.excludedDates || []);
@@ -172,11 +187,12 @@
       const ymd = date.toISOString().slice(0, 10), workday = ![0, 6].includes(date.getUTCDay()) && !excluded.has(ymd);
       const available = workday ? capacity(calendar, ymd) : 0;
       let time = 0, used = 0;
+      settleMilestones(ymd, elapsed);
       while (time < 1 - EPS && available > EPS) {
         let free = available;
         const capUsed = new Map(), running = [];
         tasks.forEach(function (task) {
-          if (task.done || task.issue || task.deps.some(function (id) { return !byTask.has(id) || !byTask.get(id).done; })) return;
+          if (task.done || task.issue || !ready(task)) return;
           let rate = free;
           task.caps.forEach(function (cap) { rate = Math.min(rate, capacity(cap.calendar, ymd) - (capUsed.get(cap.id) || 0)); });
           if (rate <= EPS) return;
@@ -192,6 +208,7 @@
           if (task.remaining < EPS) { task.done = true; task.finish = ymd; task.finishTime = elapsed + time + step; }
         });
         time += step;
+        settleMilestones(ymd, elapsed + time);
       }
       days.push({ date: ymd, availableFte: available, usedFte: used / (hours * 60), minutes: used, workday: workday });
       date.setUTCDate(date.getUTCDate() + 1); elapsed++;
@@ -205,10 +222,16 @@
       const scheduledThrough = items.map(function (task) { return task.lastDate || task.finish; }).filter(Boolean).sort().pop() || null;
       const issues = Array.from(new Set(items.map(function (task) { return task.issue; }).filter(Boolean)));
       const owner = estimateOwner.get(id), ownerCard = owner && g.byId.get(owner);
+      const ownTask = byTask.get(id);
+      const startTimes = items.map(function (task) { return task.startTime; }).filter(function (value) { return value != null; });
+      const finishTimes = items.map(function (task) { return task.finishTime; }).filter(function (value) { return value != null; });
       const status = owner && !items.length ? "Included in " + (ownerCard ? ownerCard.name : "parent") + " ETA" :
-        complete ? (items.every(function (task) { return task.total === 0; }) ? "Done" : "Scheduled") :
+        complete ? (items.every(function (task) { return task.nativeDone; }) ? "Done" : "Scheduled") :
           issues.join(" · ") || "Blocked / beyond 10-year horizon";
       rows.set(id, { id: id, card: card, start: starts[0] || (complete ? options.start : null), finish: complete ? finishes[finishes.length - 1] : null,
+        startTime: startTimes.length ? Math.min(...startTimes) : complete ? 0 : null,
+        finishTime: complete && finishTimes.length ? Math.max(...finishTimes) : null,
+        estimate: ownTask ? ownTask.estimate : null, spent: ownTask ? ownTask.spent : null, overrun: ownTask ? ownTask.overrun : 0,
         scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
     });
     const incomplete = tasks.filter(function (task) { return !task.done; });

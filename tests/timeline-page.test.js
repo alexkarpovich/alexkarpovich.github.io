@@ -55,7 +55,7 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
   assert.match(h.host.textContent, /Included in EPIC ETA/);
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
 });
-test("an over-limit phase keeps a partial epic bar and planned load visible", async () => {
+test("an over-limit phase and epic both draw bars with visible overrun and planned load", async () => {
   const h = harness({ rootId: "epic", cards: [
     { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
     { id: "a", name: "Task 1" }, { id: "b", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
@@ -66,9 +66,13 @@ test("an over-limit phase keeps a partial epic bar and planned load visible", as
     phase1: { e: [], dep: ["phase0"] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast incomplete/);
-  assert.ok(h.host.querySelector(".timeline-bar.is-partial"));
-  assert.match(h.host.textContent, /ETA exhausted/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*includes 13m over ETA/);
+  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2);
+  const overrunBar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.className.split(" ").includes("is-overrun"));
+  assert.ok(overrunBar);
+  assert.match(overrunBar.getAttribute("title"), /Phase 0.*Over ETA by 13m.*ETA 4h · Spent 4h 13m/);
+  assert.match(h.host.textContent, /Over ETA by 13m/);
+  assert.doesNotMatch(h.host.textContent, /ETA exhausted|no reliable finish/);
   assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => / · 1 \/ 1 FTE/.test(day.getAttribute("title"))));
 });
 

@@ -104,7 +104,8 @@ test("a child ETA adds load and extends its parent and the overall forecast", ()
   const p = plan([group("epic", ["task"], { limitMinutes: 480 }), task("task", 960)], { calendar: { baseFte: 1 } });
   assert.equal(p.finish, "2026-10-28");
   assert.equal(p.rows.get("epic").finish, "2026-10-28");
-  assert.equal(p.rows.get("task").finish, "2026-10-28");
+  assert.equal(p.rows.get("task").finish, "2026-10-27");
+  assert.equal(p.tasks.find(item => item.id === "epic").startTime, 2, "child work has priority over the parent remainder");
   assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
@@ -138,7 +139,7 @@ test("estimated children keep their own dependencies under an estimated parent",
   assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
-test("an exhausted phase cannot block independent epic work through an unestimated sibling", () => {
+test("an over-limit phase gets its own bar and delays the epic remainder by the overrun", () => {
   const p = plan([
     group("epic", ["phase0", "phase1"], { limitMinutes: 11520 }),
     group("phase0", ["a", "b"], { limitMinutes: 240 }),
@@ -153,14 +154,22 @@ test("an exhausted phase cannot block independent epic work through an unestimat
   assert.equal(epic.finish, "2026-11-26");
   assert.equal(p.rows.get("epic").start, start);
   assert.equal(p.rows.get("epic").scheduledThrough, epic.finish);
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 11267);
-  assert.match(p.rows.get("phase0").status, /ETA exhausted/);
-  assert.equal(p.complete, false, "the exhausted phase still needs completion or a revised ETA");
-  assert.equal(p.finish, null);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 11280);
+  const phase = p.tasks.find(item => item.id === "phase0");
+  assert.equal(phase.overrun, 13);
+  assert.equal(phase.total, 13);
+  assert.equal(phase.startTime, 0);
+  assert.equal(phase.finishTime, 13 / 480);
+  assert.equal(epic.startTime, phase.finishTime);
+  assert.equal(p.rows.get("phase0").overrun, 13);
+  assert.equal(p.rows.get("phase0").start, start);
+  assert.equal(p.rows.get("phase0").finish, start);
+  assert.equal(p.complete, true);
+  assert.equal(p.finish, "2026-11-26");
 });
 
-test("missing estimates, exhausted estimates and unavailable dependencies cannot imply completion", () => {
-  for (const first of [task("a", null), task("a", 480, { entries: [{ minutes: 480 }] }), task("a", 480, { missing: true })]) {
+test("missing estimates and unavailable dependencies cannot imply completion", () => {
+  for (const first of [task("a", null), task("a", 480, { missing: true })]) {
     const p = plan([first, task("b", 480, { dependencyIds: ["a"] })]);
     assert.equal(p.complete, false);
     assert.equal(p.rows.get("a").finish, null);
@@ -171,6 +180,35 @@ test("missing estimates, exhausted estimates and unavailable dependencies cannot
   const external = plan([task("b", 480, { dependencyIds: ["gone"] })]);
   assert.equal(external.finish, null);
   assert.equal(external.rows.get("gone").status, "Unavailable");
+});
+
+test("overrun shifts dependent work by exact working minutes, including weekends and FTE caps", () => {
+  const cards = [task("first", 240, { entries: [{ minutes: 253 }] }),
+    task("after", 480, { dependencyIds: ["first"] })];
+  for (const baseFte of [1, 0.5]) {
+    const p = plan(cards, { start: "2026-10-30", calendar: { baseFte } });
+    const after = p.tasks.find(item => item.id === "after");
+    assert.equal(after.startTime, 13 / (480 * baseFte));
+    assert.equal(p.rows.get("first").overrun, 13);
+    assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 493);
+    assert.equal(p.finish, baseFte === 1 ? "2026-11-02" : "2026-11-03");
+    assert.ok(p.days.filter(day => !day.workday).every(day => day.minutes === 0));
+  }
+});
+
+test("an ETA exactly consumed is a zero-duration milestone that releases successors", () => {
+  const p = plan([task("before", 480), task("exact", 240, { entries: [{ minutes: 240 }], dependencyIds: ["before"] }),
+    task("after", 480, { dependencyIds: ["exact"] })], { calendar: { baseFte: 1 } });
+  const exact = p.tasks.find(item => item.id === "exact");
+  const after = p.tasks.find(item => item.id === "after");
+  assert.equal(exact.total, 0);
+  assert.equal(exact.startTime, 1);
+  assert.equal(exact.finishTime, 1);
+  assert.equal(exact.nativeDone, false, "the forecast does not change Trello completion");
+  assert.equal(p.rows.get("exact").start, start);
+  assert.equal(after.startTime, 1);
+  assert.equal(p.complete, true);
+  assert.equal(p.finish, "2026-10-27");
 });
 
 test("native completion and revised estimate determine remaining work", () => {

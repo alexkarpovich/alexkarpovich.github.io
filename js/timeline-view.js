@@ -26,7 +26,7 @@
       h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Remaining work, dependencies and shared team capacity")]), refresh]),
       h("div", { class: "timeline-toolbar" }, [h("label", null, ["Project", project]), h("label", null, ["Forecast from", start]), h("label", null, ["Scale", scale])]),
       details, error, summary, warnings, chart,
-      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Epic dates cover its own work and all child work. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
+      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Child work has priority over the epic's own remaining work. Red bars show time over ETA; this delay shifts subsequent work using the same FTE calendar and dependencies. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
     ]));
     form.addEventListener("submit", async function (event) {
       event.preventDefault(); if (saving || !writable) return;
@@ -49,7 +49,8 @@
       if (!roots.length && !selected) cards.forEach(function (card) { roots.push(card.id); });
       const plan = root.TimeTimeline.plan(cards, { start: start.value, rootIds: roots, settings: settings, calendar: calendar });
       const total = plan.tasks.reduce(function (sum, task) { return sum + task.total; }, 0);
-      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + " remaining · " + plan.tasks.length + " work items";
+      const overrun = plan.tasks.reduce(function (sum, task) { return sum + (task.nativeDone ? 0 : task.overrun); }, 0);
+      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + (overrun ? " to schedule (includes " + root.TimeDuration.formatDuration(overrun, settings) + " over ETA)" : " remaining") + " · " + plan.tasks.length + " work items";
       clear(warnings);
       plan.warnings.forEach(function (message) { warnings.appendChild(h("p", { class: "hint" }, message)); });
       clear(chart);
@@ -95,6 +96,9 @@
       const firstPosition = new Map();
       displayed.forEach(function (item, index) {
         const row = item.row, card = row.card, kids = card && (card.linkedIds || card.kids || []), hasKids = kids && kids.length;
+        const overrunLabel = row.overrun ? "Over ETA by " + root.TimeDuration.formatDuration(row.overrun, settings) : "";
+        const estimateLabel = row.estimate != null ? "ETA " + root.TimeDuration.formatDuration(row.estimate, settings) + " · Spent " + root.TimeDuration.formatDuration(row.spent, settings) : "";
+        const dates = row.start && row.finish ? row.start + " → " + row.finish : row.status;
         if (!firstPosition.has(row.id)) firstPosition.set(row.id, index);
         const toggle = h("button", { type: "button", class: "timeline-toggle", "aria-label": (collapsed.has(item.key) ? "Expand " : "Collapse ") + (card ? card.name : row.id), "aria-expanded": hasKids ? String(!collapsed.has(item.key)) : null, "data-row-key": item.key,
           disabled: !hasKids, onclick: function () {
@@ -105,14 +109,15 @@
           } }, hasKids ? collapsed.has(item.key) ? "▸" : "▾" : "·");
         const label = h("div", { class: "timeline-card-label", style: "padding-left:" + Math.min(item.depth, 8) * 16 + "px" }, [toggle, h("div", { class: "timeline-card-text" }, [
           card && card.url ? h("a", { href: card.url, target: "_blank", rel: "noopener", title: card.name }, card.name) : h("span", null, card ? card.name : "Unavailable card"),
-          h("small", { class: "muted", title: row.status }, row.start && row.finish ? row.start + " → " + row.finish : row.status)
+          h("small", { class: "muted", title: [overrunLabel, estimateLabel, dates].filter(Boolean).join(" · ") }, overrunLabel ? overrunLabel + " · " + dates : dates),
+          row.estimate != null ? h("small", { class: "muted", title: estimateLabel }, estimateLabel) : null
         ])]);
         const lane = h("div", { class: "timeline-lane", style: "width:" + width + "px", title: row.dependencies.length ? "Depends on: " + row.dependencies.map(function (id) { const c = plan.graph.byId.get(id); return c ? c.name : "Unavailable card"; }).join(", ") : "No dependencies" });
         if (row.start) {
-          const left = Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000) * px;
-          const end = Math.round((Date.parse(row.finish || row.scheduledThrough || row.start) - Date.parse(start.value)) / 86400000) * px;
-          lane.appendChild(h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : ""),
-            style: "left:" + left + "px;width:" + Math.max(px - 4, end + px - left - 4) + "px", title: (card ? card.name : row.id) + " · " + row.status + " · " + root.TimeDuration.formatDuration(row.minutes, settings)
+          const left = (row.startTime != null ? row.startTime : Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000)) * px;
+          const end = (row.finishTime != null ? row.finishTime : Math.round((Date.parse(row.finish || row.scheduledThrough || row.start) - Date.parse(start.value)) / 86400000) + 1) * px;
+          lane.appendChild(h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
+            style: "left:" + left + "px;width:" + Math.max(3, end - left - 1) + "px", title: [card ? card.name : row.id, row.status, overrunLabel, estimateLabel, root.TimeDuration.formatDuration(row.minutes, settings)].filter(Boolean).join(" · ")
           }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings))));
         } else lane.appendChild(h("span", { class: "timeline-blocked" }, row.status));
         rowHost.appendChild(line(label, lane, "timeline-work-row"));
@@ -124,8 +129,8 @@
         row.dependencies.forEach(function (id) {
           const predecessor = plan.rows.get(id), source = firstPosition.get(id);
           if (!predecessor || !predecessor.finish || source == null || source === index) return;
-          const x1 = (Math.round((Date.parse(predecessor.finish) - Date.parse(start.value)) / 86400000) + 1) * px - 3;
-          const x2 = Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000) * px;
+          const x1 = (predecessor.finishTime != null ? predecessor.finishTime : Math.round((Date.parse(predecessor.finish) - Date.parse(start.value)) / 86400000) + 1) * px;
+          const x2 = (row.startTime != null ? row.startTime : Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000)) * px;
           const y1 = source * 52 + 26, y2 = index * 52 + 26;
           const path = document.createElementNS(ns, "path");
           path.setAttribute("d", "M" + x1 + " " + y1 + " H" + (x1 + 5) + " V" + y2 + " H" + Math.max(0, x2) + " m-4 -3 l4 3 -4 3");
