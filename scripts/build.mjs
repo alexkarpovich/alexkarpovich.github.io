@@ -18,6 +18,7 @@ await rm(out, { recursive: true, force: true });
 await mkdir(path.join(out, "assets"), { recursive: true });
 await cp(path.join(root, "img"), path.join(out, "img"), { recursive: true });
 await writeFile(path.join(out, ".nojekyll"), "");
+await cp(path.join(root, "_headers"), path.join(out, "_headers"));
 
 async function asset(name, extension, source) {
   const { code } = await transform(source, {

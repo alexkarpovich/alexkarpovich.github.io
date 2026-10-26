@@ -1,0 +1,8 @@
+# Cloudflare Pages: applied to every static response, including extensionless HTML.
+# GitHub Pages ignores this file; deploy dist/ to a host that supports headers.
+/*
+  Strict-Transport-Security: max-age=15552000
+  Content-Security-Policy: default-src 'none'; script-src 'self' https://p.trellocdn.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.trello.com; frame-src 'none'; frame-ancestors 'self' https://trello.com https://*.trello.com; object-src 'none'; base-uri 'none'; form-action 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

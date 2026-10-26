@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.trello.com; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy Policy — Time Tracking Power-Up</title>
   <link rel="icon" href="img/icon.svg">
@@ -12,7 +12,7 @@
 <body class="page">
   <main class="landing">
     <h1>Privacy Policy</h1>
-    <p class="lead"><strong>Time Tracking</strong> (Trello Power-Up). Last updated: <time datetime="2026-10-22">22 October 2026</time>.</p>
+    <p class="lead"><strong>Time Tracking</strong> (Trello Power-Up). Last updated: <time datetime="2026-10-26">26 October 2026</time>.</p>
 
     <h2>Who we are</h2>
     <p>
@@ -45,7 +45,7 @@
     <ul>
       <li><strong>Trello</strong> — shared plugin data on cards and boards (entries, settings, limits and calculated epic summaries).</li>
       <li><strong>Your device</strong> — when you export a report, an XLSX spreadsheet is generated and downloaded locally; we do not receive that file.</li>
-      <li><strong>Hosting (GitHub Pages)</strong> — static HTML, JavaScript, and CSS files are served from GitHub Pages. Standard web server logs (IP address, user agent, requested URL, timestamps) may be processed by GitHub as described in <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener noreferrer" target="_blank">GitHub’s Privacy Statement</a>. We do not use analytics or advertising scripts in the Power-Up pages.</li>
+      <li><strong>Static hosting</strong> — static HTML, JavaScript, and CSS files are served by GitHub Pages for the <code>github.io</code> deployment or Cloudflare Pages for the <code>pages.dev</code> deployment. The hosting provider may process standard web server logs (IP address, user agent, requested URL, timestamps): see <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener noreferrer" target="_blank">GitHub’s Privacy Statement</a> and <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener noreferrer" target="_blank">Cloudflare’s Privacy Policy</a>. We do not use analytics or advertising scripts in the Power-Up pages.</li>
     </ul>
 
     <h2>What we do not do</h2>

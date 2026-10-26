@@ -1,6 +1,6 @@
 # Trello Power-Up submission — copy-paste values
 
-Replace **`SUPPORT_EMAIL`** everywhere (including `privacy.html`) before deploy. Replace **`POWER_UP_ID`** after you create the app in [Apps Admin](https://trello.com/apps/admin). Confirm **`CONNECTOR_URL`** matches GitHub Pages → Settings → Pages.
+Replace **`SUPPORT_EMAIL`** everywhere (including `privacy.html`) before deploy. Replace **`POWER_UP_ID`** after you create the app in [Apps Admin](https://trello.com/apps/admin). Before re-review, deploy to a host that applies `dist/_headers` (see README → Security / Cloudflare Pages), then replace every `https://alexkarpovich.github.io` below with the new HTTPS origin. GitHub Pages cannot apply these custom response headers. Keep the existing Power-Up ID and API key when changing hosting.
 
 ---
 
@@ -143,7 +143,10 @@ Power-Up ID: POWER_UP_ID
 - [ ] Upload **icon** (use `img/icon.svg` exported as 512×512 PNG if admin requires PNG)
 - [ ] Add **screenshots or GIF** (card log, badge, report modal, settings)
 - [ ] Run `npm ci && npm run check`
-- [ ] Push to `main` and verify all URLs return 200
+- [ ] Deploy `dist/` to Cloudflare Pages (or configure equivalent HTTP headers on your host)
+- [ ] Run `npm run check:security -- https://YOUR-HOST/index.html` and scan the new connector URL on securityheaders.com
+- [ ] Update the existing Power-Up connector URL, privacy/website links and Trello Auth Allowed Origins to the new host
+- [ ] Verify Connect / Disconnect, themes, Timeline, and XLSX export on a real Trello board without CSP violations
 - [ ] Complete board test matrix in README on a real board
 - [ ] Submit form with **Power-Up ID** from Apps Admin URL
 

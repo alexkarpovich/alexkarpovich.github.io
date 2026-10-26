@@ -5,6 +5,30 @@ import vm from "node:vm";
 
 const out = new URL("../dist/", import.meta.url);
 const manifest = JSON.parse(await readFile(new URL("manifest.json", out), "utf8"));
+const headers = await readFile(new URL("_headers", out), "utf8");
+assert.equal(headers, await readFile(new URL("../_headers", import.meta.url), "utf8"), "publish the current security headers");
+assert.match(headers, /^\/\*$/m, "headers must cover every path, including extensionless pages");
+const hsts = Number(headers.match(/Strict-Transport-Security: max-age=(\d+)/)?.[1]);
+assert.ok(hsts > 0 && hsts < 365 * 86400, "HSTS must be positive and less than 365 days, as requested in the review");
+const csp = headers.match(/^  Content-Security-Policy: (.+)$/m)?.[1];
+assert.ok(csp, "an HTTP CSP is required; HTML meta alone is insufficient");
+assert.match(csp, /(?:^|; )default-src 'none'(?:;|$)/);
+assert.match(csp, /(?:^|; )script-src 'self' https:\/\/p\.trellocdn\.com(?:;|$)/);
+assert.match(csp, /(?:^|; )connect-src 'self' https:\/\/api\.trello\.com(?:;|$)/);
+assert.match(csp, /(?:^|; )frame-ancestors 'self' https:\/\/trello\.com https:\/\/\*\.trello\.com(?:;|$)/);
+for (const directive of ["script-src-attr", "frame-src", "object-src", "base-uri", "form-action"]) {
+  assert.ok(csp.split("; ").includes(`${directive} 'none'`), `${directive} must be disabled`);
+}
+assert.doesNotMatch(headers, /X-Frame-Options:|Cross-Origin-Opener-Policy:/i, "keep Trello embedding and the authorization opener working");
+assert.match(headers, /X-Content-Type-Options: nosniff/);
+assert.match(headers, /Referrer-Policy: no-referrer/);
+for (const page of Object.keys(manifest.pages)) {
+  const html = await readFile(new URL(page, out), "utf8");
+  let expected = csp.split("; ").filter(part => !part.startsWith("frame-ancestors ")).join("; ");
+  if (page === "privacy.html") expected = expected.replace("script-src 'self' https://p.trellocdn.com", "script-src 'none'");
+  assert.equal(html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1], expected, `${page}: keep meta fallback consistent with the HTTP policy`);
+  assert.doesNotMatch(html, /<script\b(?![^>]*\bsrc=)[^>]*>|\son[a-z]+\s*=/i, `${page}: inline JavaScript is blocked by CSP`);
+}
 for (const [file, sizes] of Object.entries(manifest.assets)) {
   const code = await readFile(new URL(file, out), "utf8");
   assert.equal(Buffer.byteLength(code), sizes.bytes);
@@ -78,4 +102,4 @@ assert.equal(scans, beforeCachedBadge, "a cached epic badge must not scan the bo
 shared.get(epicCard.id).time.lc = ["unavailable-dependency"];
 assert.equal((await capabilities["card-badges"](cacheClient))[0].text, "limit 2h", "changing owned links must reject the previous cache and keep missing dependencies unknown");
 
-console.log("Production checks passed: resource hashes, budgets, script order, connector registration, fresh logs and persisted epic totals.");
+console.log("Production checks passed: security headers, CSP fallback, resource hashes, budgets, script order, connector registration, fresh logs and persisted epic totals.");
