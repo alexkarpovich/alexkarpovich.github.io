@@ -1,0 +1,173 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const timeline = require("../js/timeline");
+const model = require("../js/model");
+const start = "2026-10-26";
+const task = (id, minutes = 480, extra = {}) => ({ id, name: id, entries: [], limitMinutes: minutes, ...extra });
+const group = (id, kids, extra = {}) => task(id, null, { linkedIds: kids, ...extra });
+const plan = (cards, extra = {}) => timeline.plan(cards, { start, calendar: { baseFte: 2 }, ...extra });
+
+test("epic predecessors gate all descendants, including deeply nested tasks", () => {
+  const p = plan([group("project", ["e1", "e2"]), group("e1", ["a", "b"]), task("a"), task("b"),
+    group("e2", ["c", "sub"], { dependencyIds: ["e1"] }), task("c"), group("sub", ["d"]), task("d")], { rootIds: ["project"] });
+  assert.equal(p.rows.get("e1").finish, start);
+  assert.equal(p.rows.get("c").start, "2026-10-27");
+  assert.equal(p.rows.get("d").start, "2026-10-27");
+  assert.deepEqual(p.rows.get("d").dependencies, ["e1"]);
+  assert.equal(p.finish, "2026-10-27");
+});
+
+test("child order is priority, independent work runs in parallel and multiple dependencies wait for all", () => {
+  const cards = [group("root", ["a", "b", "c"]), task("a"), task("b", 960), task("c", 480, { dependencyIds: ["a", "b"] })];
+  const p = plan(cards, { rootIds: ["root"] });
+  assert.equal(p.rows.get("a").start, start);
+  assert.equal(p.rows.get("b").start, start);
+  assert.equal(p.rows.get("c").start, "2026-10-28");
+  const serial = plan(cards, { rootIds: ["root"], calendar: { baseFte: 1 } });
+  assert.equal(serial.rows.get("b").start, "2026-10-27");
+  assert.equal(serial.finish, "2026-10-29");
+});
+
+test("calendar changes affect work already running and values persist until the next change", () => {
+  const p = plan([task("a", 1200)], { calendar: { baseFte: 0.5, changes: [{ date: "2026-10-27", fte: 1 }] } });
+  assert.equal(p.rows.get("a").finish, "2026-10-28");
+  assert.deepEqual(p.days.slice(0, 3).map(day => day.minutes), [240, 480, 480]);
+  assert.equal(timeline.capacity(timeline.normalizeCalendar({ baseFte: 1, changes: [{ date: "2026-10-27", fte: 2 }] }), "2026-12-01"), 2);
+});
+
+test("epic caps share the project pool, apply through nesting and can change by date", () => {
+  const cards = [group("root", ["e1", "e2"]), group("e1", ["a", "sub"], { planning: { maxFte: 1.5 } }),
+    task("a", 960), group("sub", ["b"]), task("b", 960), group("e2", ["c", "d"], { planning: { maxFte: 1.5 } }), task("c", 960), task("d", 960)];
+  const p = plan(cards, { rootIds: ["root"] });
+  assert.equal(p.days[0].minutes, 960);
+  assert.ok(p.days.every(day => day.usedFte <= day.availableFte + 1e-7));
+  const capped = plan([group("e", ["a", "b"], { planning: { maxFte: 0.5, changes: [{ date: "2026-10-27", fte: 2 }] } }), task("a", 720), task("b", 720)]);
+  assert.equal(capped.days[0].minutes, 240);
+  assert.equal(capped.days[1].minutes, 960);
+  assert.equal(capped.finish, "2026-10-28");
+});
+
+test("single tasks default to one FTE and can explicitly use more", () => {
+  assert.equal(plan([task("a", 960)]).finish, "2026-10-27");
+  assert.equal(plan([task("a", 960, { planning: { maxFte: 2 } })]).finish, start);
+});
+
+test("fractional allocations release capacity and dependencies within the same day", () => {
+  const p = plan([task("a", 120), task("b", 360, { dependencyIds: ["a"] })], { calendar: { baseFte: 1 } });
+  assert.equal(p.finish, start);
+  assert.equal(p.tasks.find(task => task.id === "b").startTime, 0.25);
+  assert.equal(p.days[0].usedFte, 1);
+});
+
+test("working days respect weekends, exclusions and configured workday hours", () => {
+  const p = plan([task("a", 720)], { start: "2026-10-30", calendar: { baseFte: 1 }, settings: { hoursPerDay: 6, excludedDates: ["2026-11-02"] } });
+  assert.equal(p.finish, "2026-11-03");
+  assert.equal(p.days.find(day => day.date === "2026-11-02").minutes, 0);
+});
+
+test("shared work is scheduled and counted once, grouping epic budgets and logs do not add work", () => {
+  const cards = [group("root", ["x", "y"], { limitMinutes: 10000 }), group("x", ["a"], { entries: [{ minutes: 900 }] }), group("y", ["a", "b"]), task("a"), task("b")];
+  const p = plan(cards, { rootIds: ["root"] });
+  assert.equal(p.tasks.length, 2);
+  assert.equal(p.rows.get("root").minutes, 960);
+  assert.equal(p.days[0].minutes, 960);
+  assert.equal(p.finish, start);
+});
+
+test("missing estimates, exhausted estimates and unavailable dependencies cannot imply completion", () => {
+  for (const first of [task("a", null), task("a", 480, { entries: [{ minutes: 480 }] }), task("a", 480, { missing: true })]) {
+    const p = plan([first, task("b", 480, { dependencyIds: ["a"] })]);
+    assert.equal(p.complete, false);
+    assert.equal(p.rows.get("a").finish, null);
+    assert.equal(p.rows.get("b").start, null);
+    assert.ok(p.warnings.length);
+    assert.equal(p.days.length, 28, "blocked plans do not display ten years of blank days");
+  }
+  const external = plan([task("b", 480, { dependencyIds: ["gone"] })]);
+  assert.equal(external.finish, null);
+  assert.equal(external.rows.get("gone").status, "Unavailable");
+});
+
+test("native completion and revised estimate determine remaining work", () => {
+  const cards = [task("a", null, { dueComplete: true }), task("b", 840, { entries: [{ minutes: 600 }], planning: { remainingMinutes: 1 }, dependencyIds: ["a"] })];
+  const p = plan(cards);
+  assert.equal(p.finish, start);
+  assert.equal(p.days[0].minutes, 240);
+  assert.equal(p.rows.get("a").status, "Done");
+  cards[1].entries.push({ minutes: 60 });
+  assert.equal(plan(cards).days[0].minutes, 180, "logging time reduces the plan without changing the estimate");
+  assert.equal(model.decode({ e: [], p: { remainingMinutes: 120 } }).planning, null, "the removed override is ignored");
+});
+
+test("root selection includes external prerequisites and inherits restrictions from ancestors", () => {
+  const p = plan([group("parent", ["child"], { dependencyIds: ["external"], planning: { maxFte: 0.5 } }), task("child"), task("external")], { rootIds: ["child"] });
+  assert.equal(p.rows.get("external").finish, start);
+  assert.equal(p.rows.get("child").start, "2026-10-27");
+  assert.equal(p.rows.get("child").finish, "2026-10-28");
+});
+
+test("zero FTE pauses work and later capacity resumes it; permanent zero stays incomplete", () => {
+  const p = plan([task("a")], { calendar: { baseFte: 0, changes: [{ date: "2026-10-28", fte: 1 }] } });
+  assert.equal(p.rows.get("a").start, "2026-10-28");
+  assert.equal(plan([task("a")], { calendar: { baseFte: 0 } }).complete, false);
+});
+
+test("validation catches direct, inherited, hierarchy and epic-to-descendant dependency cycles", () => {
+  const cases = [
+    [task("a", 480, { dependencyIds: ["b"] }), task("b", 480, { dependencyIds: ["a"] })],
+    [group("e1", ["a"]), group("e2", ["b"], { dependencyIds: ["e1"] }), task("a", 480, { dependencyIds: ["e2"] }), task("b")],
+    [group("e", ["a"], { dependencyIds: ["a"] }), task("a")],
+    [group("e", ["a"]), group("a", ["e"])],
+    [task("a", 480, { dependencyIds: ["a"] })]
+  ];
+  cases.forEach(cards => {
+    assert.throws(() => timeline.validateLinks(cards), /circular/);
+    const p = plan(cards, { rootIds: [cards[0].id] });
+    assert.equal(p.complete, false);
+    assert.match(p.warnings.join(" "), /Circular/);
+  });
+});
+
+test("calendar validates dates, deduplicates changes and preserves zero capacity", () => {
+  assert.equal(timeline.validDate("2026-02-30"), false);
+  assert.equal(timeline.validDate("2028-02-29"), true);
+  assert.throws(() => plan([], { start: "2026-02-30" }), /valid/);
+  assert.deepEqual(timeline.normalizeCalendar({ baseFte: 0, changes: [{ date: start, fte: 2 }, { date: start, fte: 0.25 }, { date: "2026-02-30", fte: 1 }, { date: start, fte: -1 }] }), { baseFte: 0, changes: [{ date: start, fte: 0.25 }] });
+});
+
+test("planning and dependencies round-trip without changing logs or legacy cards", () => {
+  const state = model.emptyState();
+  state.dependencyIds = ["epic"];
+  state.planning = { maxFte: 0.25, changes: [{ date: start, fte: 0 }] };
+  const fitted = model.fitState(state);
+  assert.deepEqual(model.decode(fitted.packed), state);
+  assert.deepEqual(fitted.state.planning, state.planning);
+  assert.equal(model.isEmpty(state), false);
+  assert.equal(model.isEmpty(model.emptyState()), true);
+  assert.equal(model.decode({ e: [] }).planning, null);
+  assert.deepEqual(model.decode({ e: [], dep: ["a", "a", null] }).dependencyIds, ["a"]);
+  assert.throws(() => model.fitState({ ...state, dependencyIds: ["x".repeat(4000)] }), { code: "STORAGE_FULL" });
+});
+
+test("completed work does not schedule its historical predecessors again", () => {
+  const p = plan([group("root", ["a"], { dependencyIds: ["gone"] }), task("a", 480, { dueComplete: true, dependencyIds: ["old"] })], { rootIds: ["root"] });
+  assert.equal(p.complete, true);
+  assert.equal(p.rows.get("root").status, "Done");
+  assert.equal(p.rows.has("gone"), false);
+  assert.equal(p.rows.has("old"), false);
+  assert.equal(p.days[0].minutes, 0);
+});
+
+test("Trello Done is the completion source; legacy planning flags cannot complete reopened work", () => {
+  const cards = [task("a", 480, { dueComplete: true, planning: { done: false } })];
+  assert.equal(plan(cards).rows.get("a").status, "Done");
+  assert.equal(plan(cards).days[0].minutes, 0);
+  cards[0].dueComplete = false;
+  cards[0].planning.done = true;
+  const reopened = plan(cards);
+  assert.equal(reopened.rows.get("a").status, "Scheduled");
+  assert.equal(reopened.days[0].minutes, 480);
+  assert.equal(model.decode({ e: [], p: { done: true } }).planning, null);
+  const epic = plan([group("root", ["a"], { dueComplete: true }), task("a")], { rootIds: ["root"] });
+  assert.equal(epic.rows.get("root").status, "Scheduled", "an epic mark does not complete unfinished children");
+});

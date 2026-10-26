@@ -15,14 +15,17 @@
   <script defer src="js/excel.js"></script>
   <script defer src="js/badges.js"></script>
   <script defer src="js/dom.js"></script>
+  <script defer src="js/timeline.js"></script>
+  <script defer src="js/planning-view.js"></script>
   <script defer src="js/card-view.js"></script>
   <script defer src="js/report-view.js"></script>
+  <script defer src="js/timeline-view.js"></script>
   <script defer src="js/preview.js"></script>
 </head>
 <body class="page trello-power-up">
   <div class="preview-wrap">
     <h1>Preview without Trello</h1>
-    <p class="lead">Same card and report UI as on the board. Data lives only in this browser tab.</p>
+    <p class="lead">Same card, report and timeline UI as on the board. Data lives only in this browser tab.</p>
     <p id="selftest-result" class="hint"></p>
     <div class="preview-grid">
       <section>
@@ -35,6 +38,7 @@
         <div id="report-app" class="panel"></div>
       </section>
     </div>
+    <section class="panel preview-timeline"><div id="timeline-app"></div></section>
   </div>
 </body>
 </html>

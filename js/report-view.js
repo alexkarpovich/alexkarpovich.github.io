@@ -220,7 +220,7 @@
         ]));
       });
       epicHost.appendChild(h("table", null, [
-          h("thead", null, h("tr", null, ["Epic", "Labels", "Limit", "Spent in period", "Remaining", "Estimated finish"].map(function (title) {
+          h("thead", null, h("tr", null, ["Epic", "Labels", "Limit", "Spent in period", "Remaining", "Budget finish (1 FTE)"].map(function (title) {
           return h("th", null, title);
         }))),
         ebody

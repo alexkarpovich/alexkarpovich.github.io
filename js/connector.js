@@ -150,6 +150,10 @@
         text: "Time report",
         condition: "always",
         callback: openReport
+      }, {
+        icon: { dark: new URL("img/report-on-dark.svg", window.location.href).href, light: new URL("img/report-on-light.svg", window.location.href).href },
+        text: "Timeline", condition: "always",
+        callback: function (t) { return t.modal({ title: "Timeline", url: "./timeline.html", fullscreen: true }); }
       }];
     },
     "show-settings": function (t) {

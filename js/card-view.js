@@ -24,7 +24,6 @@
   }
 
   function mountCardView(rootNode, handlers) {
-    let editingLimit = false;
     let latestModel = null;
     let lastPresentation = "";
     let lastEntries = "";
@@ -59,34 +58,6 @@
     const debugHost = h("pre", { class: "epic-debug hint", hidden: true });
     const editHost = h("div", { class: "edit-panel", hidden: "hidden" });
 
-    const limitInput = h("input", {
-      id: "card-estimate",
-      name: "limit",
-      placeholder: "1w",
-      autocomplete: "off",
-      "aria-label": "Estimate",
-      maxlength: "40"
-    });
-    const limitButton = h("button", { type: "submit", class: "button mod-primary", "aria-label": "Save estimate" }, "Save");
-    const clearLimit = h("button", { type: "button", class: "button-link" }, "Clear");
-    const cancelLimit = h("button", { type: "button", class: "button-link", onclick: function () {
-      editingLimit = false;
-      limitError.textContent = "";
-      paintLimit(latestModel);
-    } }, "Cancel");
-    const limitError = h("div", { class: "error", role: "alert" });
-    const limitValue = h("strong");
-    const editLimit = entryAction("Edit estimate",
-      '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/>',
-      false, false, function () {
-        editingLimit = true;
-        limitError.textContent = "";
-        limitInput.value = latestModel.limitMinutes != null ? format(latestModel.limitMinutes, latestModel.settings) : "";
-        paintLimit(latestModel);
-        limitInput.focus();
-        limitInput.select();
-      });
-    const limitSummary = h("div", { class: "limit-summary", hidden: true }, [h("span", { class: "muted" }, "Estimate"), limitValue, editLimit]);
     const epicBody = h("div", { class: "epic-body" });
     const linkInput = h("input", {
       id: "epic-card-link", name: "card-link", type: "text", placeholder: "Card name or Trello URL", role: "combobox",
@@ -202,13 +173,6 @@
     }, [form, addHint, editHost, list]);
     let activeTab = "";
 
-    const limitForm = h("form", { class: "limit-form", hidden: true }, [
-      h("div", { class: "control-row" }, [
-        h("label", { for: "card-estimate", class: "muted" }, "Estimate"),
-        limitInput, limitButton, clearLimit, cancelLimit
-      ]),
-      limitError
-    ]);
     const epicSection = h("section", {
       class: "epic", id: "card-epic-panel", role: "tabpanel", "aria-labelledby": "epic-tab", tabindex: "0", hidden: true
     }, [
@@ -248,10 +212,12 @@
       endDrag();
     }
 
+    const planningTop = h("div", { class: "card-planning-top" });
+    const planningHost = h("div");
     rootNode.appendChild(h("div", { class: "card-time", id: "app-inner" }, [
-      h("div", { class: "card-estimate" }, [limitSummary, limitForm]),
-      tabs, epicSection, logPanel, storage, debugHost
+      planningTop, tabs, epicSection, logPanel, storage, debugHost, planningHost
     ]));
+    const planningView = root.TimePlanningView ? root.TimePlanningView.mount(planningHost, handlers, planningTop) : null;
 
     let editingId = null;
 
@@ -276,54 +242,6 @@
         formError.textContent = error.message || "Could not save entry.";
       });
     });
-
-    limitForm.addEventListener("submit", function (event) {
-      event.preventDefault();
-      saveLimit(limitInput.value);
-    });
-    clearLimit.addEventListener("click", function () {
-      limitInput.value = "";
-      saveLimit("");
-    });
-
-    function saveLimit(raw) {
-      if (!String(raw || "").trim()) {
-        limitError.textContent = "";
-        persistLimit(null);
-        return;
-      }
-      const parsed = root.TimeDuration.parseDuration(raw, handlers.settings());
-      if (!parsed.ok) {
-        limitError.textContent = parsed.error;
-        return;
-      }
-      limitError.textContent = "";
-      persistLimit(parsed.minutes);
-    }
-
-    function persistLimit(minutes) {
-      handlers.onLimit(minutes).then(function () {
-        editingLimit = false;
-        paintLimit(latestModel);
-      }).catch(showLimitError);
-    }
-
-    function paintLimit(model) {
-      if (!model) return;
-      const hasLimit = model.limitMinutes != null;
-      const canWrite = model.canWrite !== false;
-      limitForm.hidden = !canWrite || !editingLimit;
-      limitSummary.hidden = canWrite && editingLimit;
-      limitValue.textContent = hasLimit ? format(model.limitMinutes, model.settings) : "—";
-      editLimit.hidden = !canWrite;
-      editLimit.disabled = !!model.saving || !canWrite;
-      cancelLimit.disabled = !!model.saving;
-      clearLimit.hidden = !hasLimit;
-    }
-
-    function showLimitError(error) {
-      limitError.textContent = error.message || "Could not save estimate.";
-    }
 
     function closeEdit() {
       editingId = null;
@@ -403,9 +321,10 @@
       const presentation = JSON.stringify([model.cardId, model.settings, model.currentMemberId, model.canWrite, model.canAdd,
         model.entries, model.limitMinutes, childValues,
         model.kidsKnown, !!model.childrenLoading, model.estimatedFinish, model.warning, model.error, model.limitError, !!model.saving,
-        model.storageRatio, model.debugEpic]);
+        model.storageRatio, model.debugEpic, model.dependencies, model.inheritedDependencies, model.planning]);
       if (presentation === lastPresentation) return false;
       lastPresentation = presentation;
+      if (planningView) planningView.update(model);
       const settings = model.settings;
       const cardChanged = model.cardId !== cardId;
       if (cardChanged) {
@@ -415,12 +334,10 @@
         hideSuggestions();
         addingChild = false;
         draggedId = "";
-        editingLimit = false;
         cardId = model.cardId;
         duration.value = "";
         note.value = "";
         formError.textContent = "";
-        limitError.textContent = "";
         closeEdit();
       }
       if (cardChanged) setTab(model.children.length ? "epic" : "task");
@@ -434,22 +351,17 @@
       duration.disabled = !!model.saving || !canAdd;
       note.disabled = !!model.saving || !canAdd;
       addButton.disabled = !!model.saving || !canAdd;
-      limitInput.disabled = !!model.saving || !canWrite;
       editHost.querySelectorAll("input, button").forEach(function (node) { node.disabled = !!model.saving || !canWrite; });
-      limitButton.disabled = !!model.saving || !canWrite;
-      clearLimit.disabled = !!model.saving || !canWrite;
       if (!canWrite) addingChild = false;
       paintLinkForm();
       cancelChild.disabled = !!model.saving;
       linkInput.disabled = !!model.saving || !canWrite;
       linkButton.disabled = !!model.saving || !canWrite;
-      paintLimit(model);
 
       if (model.error) {
         formError.textContent = model.error;
         setTab("task");
       }
-      if (model.limitError) limitError.textContent = model.limitError;
 
       const entriesKey = JSON.stringify([model.cardId, model.entries, settings, model.currentMemberId, canWrite]);
       if (entriesKey !== lastEntries) {
@@ -504,9 +416,6 @@
         debugHost.textContent = "";
       }
 
-      if (!editingLimit && !limitInput.matches(":focus")) {
-        limitInput.value = model.limitMinutes ? format(model.limitMinutes, settings) : "";
-      }
       const epicKey = JSON.stringify([model.cardId, settings, model.limitMinutes, model.kidsKnown, !!model.childrenLoading,
         model.estimatedFinish, canWrite, childValues]);
       if (epicKey !== lastEpic) {
@@ -578,8 +487,8 @@
             ])
           ]));
           if (model.estimatedFinish) epicBody.appendChild(h("p", { class: "hint estimate-line" }, [
-            "Est. finish: " + model.estimatedFinish,
-            helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped.")
+            "Budget finish (1 FTE): " + model.estimatedFinish,
+            helpTip("Remaining budget converted using hours per workday in board settings, counted from today. Weekends and excluded dates are skipped. Use Timeline for dependencies and team capacity.")
           ]));
         } else {
           epicBody.appendChild(h("p", { class: "hint" }, "Spent by child cards: " + format(spent, settings)));

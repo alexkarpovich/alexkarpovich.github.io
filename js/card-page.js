@@ -61,7 +61,12 @@
       onLinkAdd: onLinkAdd,
       onCardSearch: onCardSearch,
       onLinkRemove: onLinkRemove,
-      onLinkReorder: onLinkReorder
+      onLinkReorder: onLinkReorder,
+      onDependencyAdd: function (text, id) { return onLinkAdd(text, id, "dependency"); },
+      onDependencyRemove: function (id) { return withSaving(function () { return mutate(function (state) { state.dependencyIds = state.dependencyIds.filter(function (key) { return key !== id; }); return state; }); }); },
+      onPlanning: function (planning, minutes) { return withSaving(function () { return mutate(function (state) { state.planning = window.TimeModel.normalizePlanning(planning); state.limitMinutes = minutes; return state; }); }); },
+      onInspectDependencies: onInspectDependencies,
+      onTimeline: function () { return t.modal({ title: "Timeline", url: "./timeline.html", fullscreen: true, args: { rootId: current.cardId } }); }
     });
     if (window.ResizeObserver) {
       let queued = false;
@@ -191,7 +196,7 @@
     });
   }
 
-  async function onCardSearch(query) {
+  async function onCardSearch(query, kind) {
     if (!searchCards || Date.now() - searchAt > 30000) {
       searchAt = Date.now();
       searchCards = t.cards("id", "name", "url", "shortLink").catch(function (error) { searchCards = null; throw error; });
@@ -199,11 +204,11 @@
     const cards = await searchCards;
     const text = String(query || "").trim().toLowerCase();
     return cards.filter(function (card) {
-      return card.id !== current.cardId && !current.linkedIds.includes(card.id) && String(card.name || "").toLowerCase().includes(text);
+      return card.id !== current.cardId && !(kind === "dependency" ? current.dependencyIds : current.linkedIds).includes(card.id) && String(card.name || "").toLowerCase().includes(text);
     }).slice(0, 8);
   }
 
-  function onLinkAdd(rawLink, selectedId) {
+  function onLinkAdd(rawLink, selectedId, kind) {
     return withSaving(async function () {
       const text = String(rawLink || "").trim();
       const match = text.match(/^https?:\/\/trello\.com\/c\/([A-Za-z0-9]+)(?:[/?#].*)?$/i);
@@ -218,17 +223,14 @@
       const child = matches[0];
       if (!child) throw new Error("Card not found. Use a visible card on this board in an open list.");
       if (child.id === current.cardId) throw new Error("A card cannot link to itself.");
-      // Validate the descendant graph before persisting a new relationship.
-      const related = await window.TimeRuntime.loadCardChildren(t, Object.assign({}, child, {
-        linkedIds: window.TimeModel.decode(await t.get(child.id, "shared", "time", null)).linkedIds
-      }), appKey(), window.TimeModel, window.TimeEpic);
-      if (related.board.timeById.has(current.cardId) || Array.from(related.inspections.values()).some(function (item) { return (item.childIds || []).includes(current.cardId); })) throw new Error("This link would create a circular epic.");
-      if (Array.from(related.board.totalsById.values()).some(function (item) { return item.missing; })) throw new Error("Some descendant cards are unavailable. Restore access before adding this link.");
+      const board = await planningBoard();
+      window.TimeTimeline.validateLinks(board);
       return mutate(function (state) {
-        if (state.linkedIds.includes(child.id)) throw new Error("This card is already linked.");
-        state.linkedIds.push(child.id);
+        const ids = kind === "dependency" ? state.dependencyIds : state.linkedIds;
+        if (ids.includes(child.id)) throw new Error("This card is already linked.");
+        ids.push(child.id);
         return state;
-      });
+      }, board);
     });
   }
 
@@ -256,11 +258,14 @@
     });
   }
 
-  async function mutate(change) {
+  async function mutate(change, relationshipBoard) {
     const card = await t.card("id");
     const shared = await t.get(card.id, "shared");
     const state = window.TimeModel.decode(shared && shared.time);
     const next = change(state);
+    if (hasNewLinks(window.TimeModel.decode(shared && shared.time), next)) {
+      await validateRelationships(card.id, next, relationshipBoard);
+    }
     // Retire legacy checklist settings; owned links are source data.
     next.kids = null;
     next.subtasksChecklistId = null;
@@ -283,6 +288,7 @@
     delete latestPrimary.rollupLinks;
     const fresh = JSON.stringify(latestShared.time) === JSON.stringify(shared && shared.time)
       ? next : change(window.TimeModel.decode(latestShared.time));
+    if (fresh !== next && hasNewLinks(window.TimeModel.decode(latestShared.time), fresh)) await validateRelationships(card.id, fresh);
     fresh.kids = null;
     fresh.subtasksChecklistId = null;
     fit = window.TimeModel.isEmpty(fresh) ? null : window.TimeModel.fitState(fresh, latestPrimary);
@@ -297,6 +303,44 @@
       catch (error) { rollupNotice = "Time saved. Parent totals will be recalculated when reopened."; }
     }
     if (fit && fit.warning) t.alert({ message: fit.warning, duration: 6, display: "warning" });
+  }
+
+  function hasNewLinks(previous, next) {
+    return next.linkedIds.some(function (id) { return !previous.linkedIds.includes(id); }) ||
+      next.dependencyIds.some(function (id) { return !previous.dependencyIds.includes(id); });
+  }
+
+  async function planningBoard() {
+    const cards = await t.cards("id", "name", "url", "shortLink");
+    const loaded = await window.TimeRuntime.loadBoardTimes(t, appKey(), window.TimeModel, cards);
+    return cards.map(function (item) { return Object.assign({}, item, window.TimeModel.decode(loaded.timeById.get(item.id)), { missing: loaded.unreadableIds.has(item.id) }); });
+  }
+
+  async function validateRelationships(id, state, loaded) {
+    const cards = loaded || await planningBoard();
+    if (cards.some(function (item) { return item.missing; })) throw new Error("Some card links are unavailable. Restore access before changing relationships.");
+    const index = cards.findIndex(function (item) { return item.id === id; });
+    if (index < 0) cards.push(Object.assign({ id: id }, state));
+    else cards[index] = Object.assign({}, cards[index], state);
+    const known = new Set(cards.map(function (item) { return item.id; }));
+    if (cards.some(function (item) { return item.linkedIds.concat(item.dependencyIds).some(function (key) { return !known.has(key); }); })) throw new Error("Some linked cards are unavailable. Restore access before adding links.");
+    window.TimeTimeline.validateLinks(cards);
+  }
+
+  async function onInspectDependencies() {
+    const id = current.cardId, cards = await planningBoard();
+    if (current.cardId !== id) return;
+    const g = window.TimeTimeline.graph(cards), inherited = [];
+    g.ancestors(id).forEach(function (parentId) {
+      const parent = g.byId.get(parentId);
+      (parent.dependencyIds || []).forEach(function (dep) {
+        const card = g.byId.get(dep);
+        inherited.push({ id: dep, name: card ? card.name : "Unavailable card", parentName: parent.name, parentUrl: parent.url });
+      });
+    });
+    current.inheritedDependencies = inherited;
+    view.update(current);
+    return { count: inherited.length, incomplete: cards.some(function (card) { return card.missing; }) };
   }
 
   async function loadModel(client) {
@@ -318,6 +362,10 @@
       canAdd: write && !!currentMember,
       entries: state.entries,
       linkedIds: state.linkedIds,
+      dependencyIds: state.dependencyIds,
+      planning: state.planning,
+      dependencies: state.dependencyIds.map(function (id) { return { id: id, name: "Card " + id, missing: true }; }),
+      inheritedDependencies: [],
       limitMinutes: state.limitMinutes,
       kidsKnown: false,
       needsChecklistAuth: false,
@@ -330,6 +378,12 @@
       saving: saving,
       storageRatio: window.TimeModel.storageRatio(state)
     };
+    if (state.dependencyIds.length) {
+      try {
+        const cards = await client.cards("id", "name", "url", "shortLink");
+        base.dependencies = state.dependencyIds.map(function (id) { return cards.find(function (item) { return item.id === id; }) || { id: id, name: "Unavailable card", missing: true }; });
+      } catch (error) { base.warning = "Dependency names could not be loaded. Open Timeline to retry."; }
+    }
     if (!state.linkedIds.length) return base;
 
     // The time form and its entries are usable while optional epic data loads.

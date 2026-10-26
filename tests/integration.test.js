@@ -60,6 +60,7 @@ function cardHarness(overrides = {}, environment = {}) {
     TimeRuntime: runtime,
     TimeDuration: duration,
     TimeModel: model,
+    TimeTimeline: require("../js/timeline"),
     TimeEpic: epic,
     TimeCardView: { mount: (app, callbacks) => {
       handlers = callbacks;
@@ -706,4 +707,57 @@ test("an epic cannot reuse an unvalidated raw result from its child's badge", as
   release("invalid JSON");
   await childBadge;
   assert.equal((await epicBadge)[0].text, "limit 2h");
+});
+
+test("card planning and dependencies persist with source logs, detect inherited cycles, and allow removing unavailable links", async () => {
+  const cards = [
+    { id: "p", name: "Project", shortLink: "p" },
+    { id: "e1", name: "Epic One", shortLink: "e1" },
+    { id: "e2", name: "Epic Two", shortLink: "e2" },
+    { id: "a", name: "Task A", shortLink: "a" },
+    { id: "b", name: "Task B", shortLink: "b" }
+  ];
+  const data = new Map([
+    ["p", { time: { lc: ["e1", "e2"], e: [] } }],
+    ["e1", { time: { lc: ["a"], e: [] } }],
+    ["e2", { time: { lc: ["b"], e: [] } }],
+    ["a", { time: { lim: 480, who: [["me", "Me"]], e: [["log", 20261026, 30, 0]] } }],
+    ["b", { time: { lim: 480, e: [] } }]
+  ]);
+  let current = "e2", writes = 0;
+  const h = cardHarness({
+    card: async () => cards.find(card => card.id === current),
+    cards: async () => cards,
+    getContext: () => ({ board: "dependency-board", permissions: { board: "write" } }),
+    get: async (scope, visibility, key, fallback) => {
+      if (scope === "board") return fallback;
+      const shared = data.get(scope === "card" ? current : scope) || {};
+      return structuredClone(key ? shared[key] ?? fallback : shared);
+    },
+    set: async (scope, visibility, key, value) => { writes++; Object.assign(data.get(scope), structuredClone(typeof key === "object" ? key : { [key]: value })); },
+    remove: async (scope, visibility, key) => { delete data.get(scope)[key]; }
+  });
+  await h.render();
+  await h.handlers().onDependencyAdd("Epic One", "e1");
+  assert.deepEqual(data.get("e2").time.dep, ["e1"]);
+  assert.deepEqual(h.latest().dependencies.map(card => card.id), ["e1"]);
+  current = "b"; await h.render();
+  await h.handlers().onInspectDependencies();
+  assert.equal(h.latest().inheritedDependencies[0].parentName, "Epic Two");
+  current = "a"; await h.render();
+  const before = writes;
+  await assert.rejects(h.handlers().onDependencyAdd("Epic Two", "e2"), /circular/);
+  assert.equal(writes, before, "cycles never write source data");
+  await h.handlers().onPlanning({ maxFte: 0.5, changes: [{ date: "2026-11-01", fte: 1 }] }, 600);
+  assert.equal(data.get("a").time.lim, 600);
+  assert.equal(data.get("a").time.p.remainingMinutes, undefined);
+  assert.equal(data.get("a").time.e[0][2], 30);
+  await h.handlers().onUpdate({ ...h.latest().entries[0], minutes: 45 });
+  assert.equal(data.get("a").time.p.maxFte, 0.5, "time edits preserve planning data");
+  assert.equal(data.get("a").time.lim, 600, "time edits preserve the revised estimate");
+  data.get("a").time.dep = ["gone"];
+  await h.render();
+  await h.handlers().onDependencyRemove("gone");
+  assert.equal(data.get("a").time.dep, undefined, "unavailable relationships can always be removed");
+  assert.equal(data.get("a").time.e[0][2], 45);
 });

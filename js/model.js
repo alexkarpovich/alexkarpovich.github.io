@@ -6,7 +6,7 @@
   const MAX_PLUGIN_CHARS = 4000;
 
   function emptyState() {
-    return { linkedIds: [], limitMinutes: null, subtasksChecklistId: null, kids: null, entries: [] };
+    return { linkedIds: [], dependencyIds: [], planning: null, limitMinutes: null, subtasksChecklistId: null, kids: null, entries: [] };
   }
 
   function normalizeCreatedAt(value) {
@@ -18,11 +18,28 @@
   function cloneState(state) {
     return {
       linkedIds: (state.linkedIds || []).slice(),
+      dependencyIds: (state.dependencyIds || []).slice(),
+      planning: normalizePlanning(state.planning),
       limitMinutes: state.limitMinutes,
       subtasksChecklistId: state.subtasksChecklistId || null,
       kids: state.kids ? state.kids.slice() : null,
       entries: state.entries.map(cloneEntry)
     };
+  }
+
+  function normalizePlanning(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const out = {};
+    if (typeof raw.maxFte === "number" && Number.isFinite(raw.maxFte) && raw.maxFte >= 0 && raw.maxFte <= 100) out.maxFte = raw.maxFte;
+    if (Array.isArray(raw.changes)) {
+      const changes = new Map();
+      raw.changes.forEach(function (row) {
+        if (row && typeof row.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.date) && validDate(Number(row.date.replace(/-/g, ""))) &&
+          typeof row.fte === "number" && Number.isFinite(row.fte) && row.fte >= 0 && row.fte <= 100) changes.set(row.date, { date: row.date, fte: row.fte });
+      });
+      if (changes.size) out.changes = Array.from(changes.values()).sort(function (a, b) { return a.date.localeCompare(b.date); });
+    }
+    return Object.keys(out).length ? out : null;
   }
 
   function cloneEntry(entry) {
@@ -62,6 +79,9 @@
 
     const packed = { e: entries };
     if (state.linkedIds && state.linkedIds.length) packed.lc = state.linkedIds;
+    if (state.dependencyIds && state.dependencyIds.length) packed.dep = state.dependencyIds;
+    const planning = normalizePlanning(state.planning);
+    if (planning) packed.p = planning;
     if (who.length) packed.who = who;
     if (state.limitMinutes != null) packed.lim = state.limitMinutes;
     if (state.subtasksChecklistId) packed.sc = state.subtasksChecklistId;
@@ -89,6 +109,8 @@
     const packed = normalizePackedRaw(raw) || (raw && typeof raw === "object" ? raw : null);
     if (!packed) return state;
     if (Array.isArray(packed.lc)) state.linkedIds = Array.from(new Set(packed.lc.filter(function (id) { return typeof id === "string" && id; })));
+    if (Array.isArray(packed.dep)) state.dependencyIds = Array.from(new Set(packed.dep.filter(function (id) { return typeof id === "string" && id; })));
+    state.planning = normalizePlanning(packed.p);
     if (typeof packed.sc === "string" && packed.sc) state.subtasksChecklistId = packed.sc;
     if (Number.isFinite(Number(packed.lim)) && Number(packed.lim) > 0) state.limitMinutes = Math.round(Number(packed.lim));
     if (Array.isArray(packed.kids)) state.kids = packed.kids.filter(function (id) { return typeof id === "string" && id; });
@@ -167,7 +189,7 @@
   }
 
   function isEmpty(state) {
-    return !state.entries.length && state.limitMinutes == null && !state.subtasksChecklistId && !(state.linkedIds && state.linkedIds.length);
+    return !(state.dependencyIds && state.dependencyIds.length) && !normalizePlanning(state.planning) && !state.entries.length && state.limitMinutes == null && !state.subtasksChecklistId && !(state.linkedIds && state.linkedIds.length);
   }
 
   function totalMinutes(entries) {
@@ -185,6 +207,7 @@
 
   return {
     validateEntry: validateEntry,
+    normalizePlanning: normalizePlanning,
     MAX_PLUGIN_CHARS: MAX_PLUGIN_CHARS,
     emptyState: emptyState,
     pack: pack,

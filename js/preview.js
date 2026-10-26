@@ -70,6 +70,18 @@
     }
   ];
 
+  [
+    { id: "project", name: "Project Epic · Platform migration", kids: ["phase1", "phase2"] },
+    { id: "phase1", name: "Epic 1 · Foundation", kids: ["task-a", "task-b"], planning: { maxFte: 1.4 } },
+    { id: "task-a", name: "Task A · Data model", limitMinutes: 2400 },
+    { id: "task-b", name: "Task B · API integration", limitMinutes: 3360 },
+    { id: "phase2", name: "Epic 2 · Rollout", kids: ["task-c", "sub-epic"], dependencyIds: ["phase1"] },
+    { id: "task-c", name: "Task C · Migrate services", limitMinutes: 2880 },
+    { id: "sub-epic", name: "Sub-epic · Validation", kids: ["task-d"] },
+    { id: "task-d", name: "Task D · Release checks", limitMinutes: 1920 }
+  ].forEach(function (card) { cards.push(Object.assign({ url: "https://trello.com/c/" + card.id, listName: "Planning", labels: [], entries: [], limitMinutes: null, kids: [] }, card)); });
+  let timelineView = null;
+  let fteCalendar = { baseFte: 1.4, changes: [{ date: "2026-10-28", fte: 2 }, { date: "2026-11-04", fte: 0.8 }] };
   let selectedId = "epic";
   const picker = document.getElementById("card-picker");
   cards.forEach(function (card) {
@@ -126,9 +138,9 @@
       paintReport();
       return Promise.resolve();
     },
-    onCardSearch: function (query) {
+    onCardSearch: function (query, kind) {
       return Promise.resolve(cards.filter(function (card) {
-        return card.id !== selectedId && !(selected().kids || []).includes(card.id) && card.name.toLowerCase().includes(query.toLowerCase());
+        return card.id !== selectedId && !(kind === "dependency" ? selected().dependencyIds || [] : selected().kids || []).includes(card.id) && card.name.toLowerCase().includes(query.toLowerCase());
       }));
     },
     onLinkAdd: function (url, selectedId) {
@@ -136,6 +148,8 @@
       const child = cards.find(function (item) { return selectedId ? item.id === selectedId : item.url === url || item.name.toLowerCase() === url.toLowerCase(); });
       if (!child || child.id === card.id) return Promise.reject(new Error("Use another card URL from this preview."));
       if ((card.kids || []).includes(child.id)) return Promise.reject(new Error("This card is already linked."));
+      try { window.TimeTimeline.validateLinks(cards.map(function (item) { return item === card ? Object.assign({}, item, { kids: (item.kids || []).concat(child.id) }) : item; })); }
+      catch (e) { return Promise.reject(e); }
       card.kids = (card.kids || []).concat(child.id);
       paintCard();
       paintReport();
@@ -153,6 +167,23 @@
       paintReport();
       return Promise.resolve();
     },
+    onPlanning: function (planning, minutes) { selected().planning = window.TimeModel.normalizePlanning(planning); selected().limitMinutes = minutes; paintCard(); paintReport(); return Promise.resolve(); },
+    onDependencyAdd: function (text, id) {
+      const card = cards.find(function (item) { return id ? item.id === id : item.url === text || item.name.toLowerCase() === text.toLowerCase(); });
+      if (!card) return Promise.reject(new Error("Choose a card from this preview."));
+      const current = selected();
+      if ((current.dependencyIds || []).includes(card.id)) return Promise.reject(new Error("This dependency already exists."));
+      const next = (current.dependencyIds || []).concat(card.id);
+      try { window.TimeTimeline.validateLinks(cards.map(function (item) { return item === current ? Object.assign({}, item, { dependencyIds: next }) : item; })); }
+      catch (e) { return Promise.reject(e); }
+      current.dependencyIds = next; paintCard(); paintTimeline(); return Promise.resolve();
+    },
+    onDependencyRemove: function (id) { selected().dependencyIds = (selected().dependencyIds || []).filter(function (key) { return key !== id; }); paintCard(); paintTimeline(); return Promise.resolve(); },
+    onInspectDependencies: function () {
+      const inherited = inheritedDependencies(selected());
+      return Promise.resolve({ count: inherited.length, incomplete: false });
+    },
+    onTimeline: function () { if (timelineView) timelineView.selectRoot(selectedId); document.getElementById("timeline-app").scrollIntoView({ behavior: "smooth" }); },
     onAuthorize: function () { return Promise.resolve(); }
   });
 
@@ -167,6 +198,20 @@
       window.TimeDom.download("uchet-vremeni-" + current.from + "_" + current.to + ".xlsx", workbook);
     }
   });
+
+  timelineView = window.TimeTimelineView.mount(document.getElementById("timeline-app"), {
+    start: "2026-10-26", rootId: "project", onRefresh: function () { paintTimeline(); return Promise.resolve(); },
+    onCalendar: function (value) { fteCalendar = value; return Promise.resolve(); }
+  });
+  function paintTimeline() { if (timelineView) timelineView.update({ cards: cards, settings: settings, calendar: fteCalendar, canWrite: true }); }
+  function inheritedDependencies(card) {
+    const g = window.TimeTimeline.graph(cards), inherited = [];
+    g.ancestors(card.id).forEach(function (id) {
+      const parent = g.byId.get(id);
+      (parent.dependencyIds || []).forEach(function (dep) { const predecessor = g.byId.get(dep); inherited.push({ id: dep, name: predecessor ? predecessor.name : "Unavailable card", parentName: parent.name, parentUrl: parent.url }); });
+    });
+    return inherited;
+  }
 
   function selected() {
     return cards.find(function (card) { return card.id === selectedId; });
@@ -192,6 +237,9 @@
     const kids = card.kids || [];
     return {
       cardId: card.id,
+      planning: card.planning,
+      dependencies: (card.dependencyIds || []).map(function (id) { return cards.find(function (item) { return item.id === id; }) || { id: id, name: "Unavailable card", missing: true }; }),
+      inheritedDependencies: inheritedDependencies(card),
       settings: settings,
       members: members,
       currentMemberId: "anna",
@@ -232,6 +280,7 @@
 
   function paintReport() {
     reportView.update(currentReport(), "");
+    paintTimeline();
   }
 
   paintCard();
@@ -287,7 +336,7 @@
     expect(textOf("card-app").indexOf("1w 3d 20m left") !== -1, "epic own time ignored");
     expect(textOf("report-app").indexOf("2d 55m") !== -1, "report includes epic log");
 
-    expect(document.querySelector('#card-app label[for="card-estimate"]').textContent === "Estimate", "estimate label");
+    expect(document.querySelector("#card-app .planning-estimate").textContent === "ETA", "ETA label");
     expect(!document.querySelector('#card-app .epic-heading'), "summary heading removed");
     clickButton("card-app", "Epic");
     expect(document.querySelector('#card-app .log-panel').hidden, "Epic tab hides task view");
@@ -363,8 +412,9 @@
     expect(cardHost.querySelector(".epic-progress").textContent.includes("Over by"), "over-budget value");
     selected().limitMinutes = originalLimit;
     paintCard();
-    document.querySelector('#card-app button[aria-label="Edit estimate"]').click();
-    document.querySelector('#card-app .limit-form .button-link').click();
+    document.querySelector('#card-app button[aria-label="Edit planning"]').click();
+    document.querySelector('#card-app input[name="estimate"]').value = "";
+    document.querySelector('#card-app .planning-form').requestSubmit();
     await settle();
     expect(document.querySelectorAll("#card-app .child").length === 2, "child cards visible without a limit");
     expect(document.querySelector("#card-app .child strong").textContent !== "Unavailable", "time visible without limit");
