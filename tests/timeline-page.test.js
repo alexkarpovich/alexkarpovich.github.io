@@ -26,7 +26,9 @@ test("combined board page opens Timeline from a card, writes the calendar and pr
   assert.match(h.host.textContent, /Timeline/);
   assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d planned/,
     "one card with ETA and no time entries gets a scheduled finish");
-  assert.ok(h.host.querySelector(".timeline-bar"), "the minimum case draws a bar");
+  const bar = h.host.querySelector(".timeline-bar");
+  assert.ok(bar, "the minimum case draws a bar");
+  assert.match(bar.getAttribute("title"), /\nETA: 1d\nSpent: 0m\nOver ETA: 0m\nScheduled$/);
   h.host.querySelector('[aria-label="Default FTE"]').value = "0.5";
   await h.host.querySelector("form").fire("submit");
   assert.equal(h.writes(), 1);
@@ -70,12 +72,18 @@ test("an over-limit phase and epic both draw bars with visible overrun and plann
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2);
   const overrunBar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.className.split(" ").includes("is-overrun"));
   assert.ok(overrunBar);
-  assert.match(overrunBar.getAttribute("title"), /Phase 0.*Over ETA by 4h 13m.*ETA 1w 2d · Spent 1w 2d 4h 13m/);
-  assert.match(h.host.textContent, /Over ETA by 4h 13m/);
+  const tooltip = overrunBar.getAttribute("title");
+  assert.match(tooltip, /^Phase 0\nStart date: \d{4}-\d{2}-\d{2}\nEnd date: \d{4}-\d{2}-\d{2}\nETA: 1w 2d\nSpent: 1w 2d 4h 13m\nOver ETA: 4h 13m\nScheduled$/);
+  assert.equal(overrunBar.getAttribute("aria-label"), tooltip);
+  const labels = h.host.querySelectorAll(".timeline-card-text");
+  assert.equal(labels[0].textContent, "EPIC");
+  assert.equal(labels[1].textContent, "Phase 0");
+  assert.doesNotMatch(labels[1].textContent, /ETA|Spent|\d{4}-\d{2}-\d{2}/);
   const style = overrunBar.getAttribute("style");
   assert.ok(Number(/width:([\d.]+)px/.exec(style)[1]) > 9 * 22, "the phase bar includes seven workdays and its overrun");
   const segment = overrunBar.querySelector(".timeline-overrun");
   assert.ok(segment, "only the trailing overrun segment is red");
+  assert.equal(segment.getAttribute("title"), null, "the red segment inherits the full bar tooltip");
   assert.equal(Number(/left:([\d.]+)px/.exec(segment.getAttribute("style"))[1]), 9 * 22);
   assert.doesNotMatch(h.host.textContent, /ETA exhausted|no reliable finish/);
   assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => / · 1 \/ 1 FTE/.test(day.getAttribute("title"))));

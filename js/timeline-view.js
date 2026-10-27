@@ -96,9 +96,14 @@
       const firstPosition = new Map();
       displayed.forEach(function (item, index) {
         const row = item.row, card = row.card, kids = card && (card.linkedIds || card.kids || []), hasKids = kids && kids.length;
-        const overrunLabel = row.overrun ? "Over ETA by " + root.TimeDuration.formatDuration(row.overrun, settings) : "";
-        const estimateLabel = row.estimate != null ? "ETA " + root.TimeDuration.formatDuration(row.estimate, settings) + " · Spent " + root.TimeDuration.formatDuration(row.spent, settings) : "";
-        const dates = row.start && row.finish ? row.start + " → " + row.finish : row.status;
+        const barDetails = [card ? card.name : row.id,
+          "Start date: " + (row.start || "Not scheduled"),
+          "End date: " + (row.finish || "Not scheduled"),
+          "ETA: " + (row.estimate != null ? root.TimeDuration.formatDuration(row.estimate, settings) : "Not set"),
+          "Spent: " + (row.spent != null ? root.TimeDuration.formatDuration(row.spent, settings) : "Unavailable"),
+          "Over ETA: " + root.TimeDuration.formatDuration(row.overrun || 0, settings),
+          row.status
+        ].join("\n");
         if (!firstPosition.has(row.id)) firstPosition.set(row.id, index);
         const toggle = h("button", { type: "button", class: "timeline-toggle", "aria-label": (collapsed.has(item.key) ? "Expand " : "Collapse ") + (card ? card.name : row.id), "aria-expanded": hasKids ? String(!collapsed.has(item.key)) : null, "data-row-key": item.key,
           disabled: !hasKids, onclick: function () {
@@ -109,20 +114,19 @@
           } }, hasKids ? collapsed.has(item.key) ? "▸" : "▾" : "·");
         const label = h("div", { class: "timeline-card-label", style: "padding-left:" + Math.min(item.depth, 8) * 16 + "px" }, [toggle, h("div", { class: "timeline-card-text" }, [
           card && card.url ? h("a", { href: card.url, target: "_blank", rel: "noopener", title: card.name }, card.name) : h("span", null, card ? card.name : "Unavailable card"),
-          h("small", { class: "muted", title: [overrunLabel, estimateLabel, dates].filter(Boolean).join(" · ") }, overrunLabel ? overrunLabel + " · " + dates : dates),
-          row.estimate != null ? h("small", { class: "muted", title: estimateLabel }, estimateLabel) : null
+          !row.start ? h("small", { class: "muted", title: row.status }, row.status) : null
         ])]);
         const lane = h("div", { class: "timeline-lane", style: "width:" + width + "px", title: row.dependencies.length ? "Depends on: " + row.dependencies.map(function (id) { const c = plan.graph.byId.get(id); return c ? c.name : "Unavailable card"; }).join(", ") : "No dependencies" });
         if (row.start) {
           const left = (row.startTime != null ? row.startTime : Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000)) * px;
           const end = (row.finishTime != null ? row.finishTime : Math.round((Date.parse(row.finish || row.scheduledThrough || row.start) - Date.parse(start.value)) / 86400000) + 1) * px;
           const bar = h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
-            style: "left:" + left + "px;width:" + Math.max(3, end - left - 1) + "px", title: [card ? card.name : row.id, row.status, overrunLabel, estimateLabel, root.TimeDuration.formatDuration(row.minutes, settings)].filter(Boolean).join(" · ")
+            style: "left:" + left + "px;width:" + Math.max(3, end - left - 1) + "px", title: barDetails, tabindex: "0", "aria-label": barDetails
           }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings)));
           if (row.overrunStartTime != null) {
             const overrunLeft = Math.max(0, row.overrunStartTime * px - left);
             const overrunEnd = row.overrunFinishTime != null ? row.overrunFinishTime * px : end;
-            bar.appendChild(h("div", { class: "timeline-overrun", style: "left:" + overrunLeft + "px;width:" + Math.max(3, overrunEnd - left - overrunLeft) + "px", title: overrunLabel }));
+            bar.appendChild(h("div", { class: "timeline-overrun", style: "left:" + overrunLeft + "px;width:" + Math.max(3, overrunEnd - left - overrunLeft) + "px" }));
           }
           lane.appendChild(bar);
         } else lane.appendChild(h("span", { class: "timeline-blocked" }, row.status));

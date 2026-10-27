@@ -719,14 +719,15 @@ th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: upp
 .timeline-toggle { width: 20px; padding: 0; flex-shrink: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .timeline-toggle:disabled { cursor: default; }
 .timeline-card-text { min-width: 0; }
-.timeline-card-text > :first-child { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--text); }
+.timeline-card-text > :first-child { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text); }
 .timeline-card-text > a:hover { color: var(--blue); }
-.timeline-card-text small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.timeline-card-text small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 14px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .timeline-lane { position: relative; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--day-width) - 1px), var(--line) calc(var(--day-width) - 1px), var(--line) var(--day-width)); }
 .timeline-offdays { position: absolute; top: 0; bottom: 0; left: var(--label-width); width: var(--timeline-width); pointer-events: none; }
 .timeline-offday { position: absolute; inset: 0 auto 0 0; background: var(--bg); opacity: 0.7; }
 .timeline-bar { position: absolute; top: 17px; height: 18px; min-width: 3px; border-radius: 3px; background: var(--blue); color: var(--card); font-size: 10px; line-height: 18px; overflow: hidden; white-space: nowrap; }
 .timeline-bar > span { padding: 0 6px; }
+.timeline-bar:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .timeline-bar.is-group { top: 20px; height: 11px; border-radius: 2px; background: var(--muted); line-height: 11px; }
 .timeline-bar.is-group > span { display: none; }
 .timeline-bar.is-partial { background: var(--orange); }
