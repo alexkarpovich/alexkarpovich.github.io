@@ -20,7 +20,7 @@ function createDom() {
     get children() { return this.childNodes.filter(node => node.tagName); }
     get firstChild() { return this.childNodes[0]; }
     get value() { return this._value; } set value(v) { this._value = String(v); }
-    setAttribute(key, value) { this.attrs[key] = String(value); if (["id", "type", "name", "value", "tabindex"].includes(key)) this[key] = String(value); if (["hidden", "disabled", "required", "checked"].includes(key)) this[key] = true; }
+    setAttribute(key, value) { this.attrs[key] = String(value); if (key === "class") this.className = String(value); if (["id", "type", "name", "value", "tabindex"].includes(key)) this[key] = String(value); if (["hidden", "disabled", "required", "checked"].includes(key)) this[key] = true; }
     getAttribute(key) { return key === "class" ? this.className : this.attrs[key] ?? null; }
     hasAttribute(key) { return this.getAttribute(key) !== null; }
     removeAttribute(key) { delete this.attrs[key]; }
@@ -38,6 +38,8 @@ function createDom() {
     select() {}
     scrollIntoView() {}
     matches(selector) { return matches(this, selector); }
+    contains(node) { while (node) { if (node === this) return true; node = node.parentNode; } return false; }
+    getBoundingClientRect() { return { left: 100, right: 200, top: 100, bottom: 120, width: 100, height: 20 }; }
     querySelectorAll(selector) {
       const all = node => node.children.flatMap(child => [child, ...all(child)]);
       return all(this).filter(node => selector.split(/,\s*/).some(part => {
@@ -52,8 +54,10 @@ function createDom() {
     get classList() { return { contains: value => this.className.split(" ").includes(value), add: value => { if (!this.className.split(" ").includes(value)) this.className += " " + value; }, remove: value => { this.className = this.className.split(" ").filter(item => item !== value).join(" "); } }; }
   }
   const body = new Element("body");
-  document = { body, activeElement: null, createElement: tag => new Element(tag), createElementNS: (ns, tag) => new Element(tag), createTextNode: text => ({ textContent: String(text) }), getElementById: id => body.querySelector("#" + id) };
-  const window = { TimeDuration: require("../../js/duration"), TimeModel: require("../../js/model"), TimeEpic: require("../../js/epic"), TimeTimeline: require("../../js/timeline") };
+  const events = new Element("events");
+  document = { body, activeElement: null, addEventListener: events.addEventListener.bind(events), fire: events.fire.bind(events), createElement: tag => new Element(tag), createElementNS: (ns, tag) => new Element(tag), createTextNode: text => ({ textContent: String(text) }), getElementById: id => body.querySelector("#" + id) };
+  const windowEvents = new Element("events");
+  const window = { setTimeout, clearTimeout, innerWidth: 1024, innerHeight: 768, addEventListener: windowEvents.addEventListener.bind(windowEvents), fire: windowEvents.fire.bind(windowEvents), TimeDuration: require("../../js/duration"), TimeModel: require("../../js/model"), TimeEpic: require("../../js/epic"), TimeTimeline: require("../../js/timeline") };
   const context = vm.createContext({ window, self: window, document, console, TextEncoder, Blob, crypto });
   function run(file) { vm.runInContext(fs.readFileSync(require.resolve("../../js/" + file), "utf8"), context); }
   run("dom.js");

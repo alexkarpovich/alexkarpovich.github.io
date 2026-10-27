@@ -16,7 +16,7 @@ test("timeline renders computed dates, dependencies, calendar edits and collapse
   view.update(model);
   assert.match(host.querySelector(".timeline-summary").textContent, /2026-10-27/);
   assert.equal(host.querySelectorAll(".timeline-work-row").length, 3);
-  assert.equal(host.querySelectorAll("path").length, 1, "dependency connector is rendered");
+  assert.equal(host.querySelectorAll("[data-predecessor]").length, 1, "dependency connector is rendered");
   await host.querySelector('.timeline-toggle').fire("click");
   assert.equal(host.querySelectorAll(".timeline-work-row").length, 1);
   await host.querySelector('.timeline-toggle').fire("click");

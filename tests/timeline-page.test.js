@@ -28,7 +28,8 @@ test("combined board page opens Timeline from a card, writes the calendar and pr
     "one card with ETA and no time entries gets a scheduled finish");
   const bar = h.host.querySelector(".timeline-bar");
   assert.ok(bar, "the minimum case draws a bar");
-  assert.match(bar.getAttribute("title"), /\nETA: 1d\nSpent: 0m\nOver ETA: 0m\nScheduled$/);
+  assert.match(bar.getAttribute("aria-label"), /\nETA: 1d\nSpent: 0m\nOver ETA: 0m\nScheduled$/);
+  assert.equal(bar.getAttribute("title"), null, "use the styled tooltip instead of the browser title");
   h.host.querySelector('[aria-label="Default FTE"]').value = "0.5";
   await h.host.querySelector("form").fire("submit");
   assert.equal(h.writes(), 1);
@@ -72,9 +73,13 @@ test("an over-limit phase and epic both draw bars with visible overrun and plann
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2);
   const overrunBar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.className.split(" ").includes("is-overrun"));
   assert.ok(overrunBar);
-  const tooltip = overrunBar.getAttribute("title");
+  const tooltip = overrunBar.getAttribute("aria-label");
   assert.match(tooltip, /^Phase 0\nStart date: \d{4}-\d{2}-\d{2}\nEnd date: \d{4}-\d{2}-\d{2}\nETA: 1w 2d\nSpent: 1w 2d 4h 13m\nOver ETA: 4h 13m\nScheduled$/);
-  assert.equal(overrunBar.getAttribute("aria-label"), tooltip);
+  await overrunBar.fire("click");
+  const popup = h.host.querySelector(".timeline-tooltip");
+  assert.equal(popup.hidden, false);
+  assert.equal(popup.querySelector("h3").textContent, "Phase 0");
+  assert.equal(popup.querySelector(".is-over dd").textContent, "4h 13m");
   const labels = h.host.querySelectorAll(".timeline-card-text");
   assert.equal(labels[0].textContent, "EPIC");
   assert.equal(labels[1].textContent, "Phase 0");
@@ -136,4 +141,107 @@ test("timeline refresh reads native Trello Done and reopening returns planned wo
   h.setDone(false); await h.render();
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
   assert.equal(h.host.querySelector(".is-done"), null);
+});
+
+function tooltipClock(h) {
+  let now = 0, id = 0;
+  const timers = new Map();
+  h.window.setTimeout = (fn, delay) => { timers.set(++id, { fn, time: now + delay }); return id; };
+  h.window.clearTimeout = key => timers.delete(key);
+  return function advance(ms) {
+    now += ms;
+    for (const [key, timer] of [...timers]) if (timer.time <= now) { timers.delete(key); timer.fn(); }
+  };
+}
+
+test("styled timeline details delay hover, allow pointer transfer and pin on click", async () => {
+  const h = harness(); const advance = tooltipClock(h); await h.render();
+  const bar = h.host.querySelector(".timeline-bar"), popup = h.host.querySelector(".timeline-tooltip");
+  await bar.fire("pointerenter", { clientX: 200 }); advance(399);
+  assert.equal(popup.hidden, true);
+  advance(1);
+  assert.equal(popup.hidden, false);
+  assert.equal(bar.getAttribute("aria-describedby"), popup.id);
+  assert.equal(popup.querySelector(".is-eta dd").textContent, "1d");
+  assert.equal(popup.querySelector(".is-spent dd").textContent, "0m");
+  assert.equal(popup.querySelector(".is-clear dd").textContent, "0m");
+  await bar.fire("pointerleave"); advance(50); await popup.fire("pointerenter"); advance(200);
+  assert.equal(popup.hidden, false, "the pointer can move into the tooltip");
+  await popup.fire("pointerleave"); advance(150);
+  assert.equal(popup.hidden, true);
+  await bar.fire("click"); await bar.fire("pointerleave"); advance(1000);
+  assert.equal(popup.hidden, false, "click pins the tooltip");
+  assert.match(popup.querySelector(".timeline-tooltip-hint").textContent, /Click again/);
+  await h.document.fire("pointerdown", { target: popup.querySelector("h3") });
+  assert.equal(popup.hidden, false, "clicking its contents keeps the tooltip open");
+  await h.document.fire("pointerdown", { target: h.host });
+  assert.equal(popup.hidden, true);
+  await bar.fire("click"); await bar.fire("click");
+  assert.equal(popup.hidden, true, "a second click toggles the tooltip closed");
+});
+
+test("timeline tooltip supports keyboard access, dismisses stale content and stays inside viewport", async () => {
+  const h = harness(); const advance = tooltipClock(h); await h.render();
+  let bar = h.host.querySelector(".timeline-bar");
+  const popup = h.host.querySelector(".timeline-tooltip");
+  h.window.innerWidth = 400; h.window.innerHeight = 300;
+  popup.getBoundingClientRect = () => ({ width: 340, height: 250 });
+  bar.getBoundingClientRect = () => ({ left: 370, right: 410, top: 260, bottom: 280 });
+  await bar.fire("focus");
+  assert.equal(popup.hidden, false);
+  assert.equal(popup.style.left, "52px");
+  assert.equal(popup.style.top, "8px");
+  await bar.fire("keydown", { key: "Enter" }); await bar.fire("blur"); advance(500);
+  assert.equal(popup.hidden, false, "Enter pins the details for keyboard users");
+  await h.document.fire("keydown", { key: "Escape" });
+  assert.equal(popup.hidden, true);
+  assert.equal(bar.getAttribute("aria-expanded"), "false");
+  await bar.fire("keydown", { key: " " });
+  assert.equal(popup.hidden, false);
+  await h.window.fire("resize"); assert.equal(popup.hidden, true);
+  await bar.fire("click"); await h.window.fire("scroll", { target: h.host });
+  assert.equal(popup.hidden, true, "scrolling dismisses the popup before its anchor moves");
+  await bar.fire("pointerenter"); await bar.fire("pointerleave"); advance(500);
+  assert.equal(popup.hidden, true, "leaving before the delay cancels the pending tooltip");
+  await bar.fire("pointerenter"); await h.render(); advance(500);
+  assert.equal(popup.hidden, true, "a refresh cancels the pending tooltip for removed bars");
+  bar = h.host.querySelector(".timeline-bar");
+  await bar.fire("focus"); await bar.fire("blur"); advance(150);
+  assert.equal(popup.hidden, true);
+});
+
+test("dependency connectors use actual bar edges and approach successors with rounded forward arrows", async () => {
+  for (const children of [["a", "b"], ["b", "a"]]) {
+    const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "A" }, { id: "b", name: "B" }],
+      timeById: { epic: { e: [], lc: children }, a: { e: [], lim: 480 }, b: { e: [], lim: 480, dep: ["a"] } } });
+    await h.render();
+    const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
+    for (const scale of ["weeks", "months"]) {
+      const select = h.host.querySelector('[aria-label="Timeline scale"]'); select.value = scale; await select.fire("change");
+      const bars = h.host.querySelectorAll(".timeline-bar");
+      const source = bars.find(bar => bar.getAttribute("aria-label").startsWith("A\n"));
+      const target = bars.find(bar => bar.getAttribute("aria-label").startsWith("B\n"));
+      const value = (bar, key) => Number(new RegExp(key + ":([\\d.]+)px").exec(bar.getAttribute("style"))[1]);
+      const sourceX = value(source, "left") + value(source, "width"), targetX = value(target, "left") - 2;
+      const sourceY = (children.indexOf("a") + 1) * 52 + 26, targetY = (children.indexOf("b") + 1) * 52 + 26;
+      const path = h.host.querySelector('[data-predecessor="a"]');
+      assert.equal(path.getAttribute("data-successor"), "b");
+      assert.ok(path.getAttribute("d").startsWith("M" + sourceX + " " + sourceY));
+      assert.ok(path.getAttribute("d").endsWith("L" + targetX + " " + targetY));
+      assert.match(path.getAttribute("d"), / Q/, "corners are rounded");
+      const arrow = h.host.querySelector(".timeline-dependency-arrow");
+      assert.equal(arrow.getAttribute("d"), `M${targetX - 4} ${targetY - 3} L${targetX} ${targetY} L${targetX - 4} ${targetY + 3}`);
+    }
+    await h.host.querySelector('.timeline-toggle').fire("click");
+    assert.equal(h.host.querySelector('[data-predecessor="a"]'), null, "collapsed cards have no stray connectors");
+  }
+});
+
+test("dependencies from completed work enter a first-day successor vertically without clipping the arrow", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "Done", dueComplete: true }, { id: "b", name: "Next" }],
+    timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [], lim: 480 }, b: { e: [], lim: 480, dep: ["a"] } } });
+  await h.render();
+  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
+  assert.ok(h.host.querySelector('[data-predecessor="a"]').getAttribute("d").endsWith("L8 119"));
+  assert.equal(h.host.querySelector(".timeline-dependency-arrow").getAttribute("d"), "M5 115 L8 119 L11 115");
 });
