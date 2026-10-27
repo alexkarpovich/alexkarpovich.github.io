@@ -43,6 +43,26 @@ test("a group with one estimated child renders dates from the child without a gr
   assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h planned/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "child and grouping epic both appear on the timeline");
 });
+test("epic bars show only logged progress and today's marker follows the scale and visible dates", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "task", name: "Task" }],
+    timeById: { epic: { e: [], lc: ["task"] }, task: { e: [["entry", 20261020, 240, 0]], lim: 960 } } });
+  await h.render();
+  const start = h.host.querySelector('[aria-label="Forecast start"]');
+  const today = h.window.TimeDuration.formatYmd(new Date());
+  start.value = "2026-10-26"; await start.fire("change");
+  const epic = h.host.querySelector(".is-group");
+  assert.equal(epic.querySelector(".timeline-spent").getAttribute("style"), "left:0px;width:11px");
+  assert.ok(Number(/width:([\d.]+)px/.exec(epic.getAttribute("style"))[1]) > 11);
+  start.value = today; await start.fire("change");
+  let marker = h.host.querySelector(".timeline-today");
+  assert.equal(marker.getAttribute("aria-label"), "Today: " + today);
+  assert.equal(marker.getAttribute("style"), "left:calc(var(--label-width) + 11px)");
+  const scale = h.host.querySelector('[aria-label="Timeline scale"]'); scale.value = "months"; await scale.fire("change");
+  marker = h.host.querySelector(".timeline-today");
+  assert.equal(marker.getAttribute("style"), "left:calc(var(--label-width) + 3.5px)");
+  start.value = "2999-01-01"; await start.fire("change");
+  assert.equal(h.host.querySelector(".timeline-today"), null, "today is outside the visible range");
+});
 test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async () => {
   const h = harness({ rootId: "epic", cards: [
     { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },

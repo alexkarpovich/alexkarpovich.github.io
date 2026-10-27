@@ -199,7 +199,10 @@
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (activeBar === bar && pinned) closeTooltip(); else openTooltip(bar, row, true); }
             }
           }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings)));
-          if (!barPositions.has(row.id)) barPositions.set(row.id, { left: left, right: left + Math.max(3, end - left - 1), y: index * 52 + 26, halfHeight: hasKids ? 6 : 9 });
+          if (!barPositions.has(row.id)) barPositions.set(row.id, { left: left, right: left + Math.max(3, end - left - 1), y: index * 52 + 26 });
+          row.spentSegments.forEach(function (segment) {
+            bar.appendChild(h("div", { class: "timeline-spent", style: "left:" + (segment.start * px - left) + "px;width:" + (segment.finish - segment.start) * px + "px" }));
+          });
           if (row.overrunStartTime != null) {
             const overrunLeft = Math.max(0, row.overrunStartTime * px - left);
             const overrunEnd = row.overrunFinishTime != null ? row.overrunFinishTime * px : end;
@@ -225,7 +228,7 @@
           let arrowPoints = [[tip - 4, y2 - 3], [tip, y2], [tip - 4, y2 + 3]];
           if (x2 < 6) {
             // A successor on the first day has no room for a left-hand arrow.
-            const x = x2 + Math.min(8, (target.right - target.left) / 2), y = y2 - direction * (target.halfHeight + 2);
+            const x = x2 + Math.min(8, (target.right - target.left) / 2), y = y2 - direction * 11;
             points = [[x1, y1], [exit, y1], [exit, y2 - direction * 26], [x, y2 - direction * 26], [x, y]];
             arrowPoints = [[x - 3, y - direction * 4], [x, y], [x + 3, y - direction * 4]];
           }
@@ -244,6 +247,9 @@
       plan.days.forEach(function (day) { load.appendChild(h("span", { class: "timeline-load-day", title: day.date + " · " + Number(day.usedFte.toFixed(2)) + " / " + day.availableFte + " FTE" },
         h("span", { style: "height:" + day.usedFte / maxFte * 28 + "px" }))); });
       surface.appendChild(line([h("strong", null, "Planned load"), h("small", { class: "muted" }, "Allocated FTE per day")], load, "timeline-load-row"));
+      const today = root.TimeDuration.formatYmd(new Date());
+      const todayIndex = plan.days.findIndex(function (day) { return day.date === today; });
+      if (todayIndex >= 0) surface.appendChild(h("div", { class: "timeline-today", style: "left:calc(var(--label-width) + " + (todayIndex + 0.5) * px + "px)", role: "img", "aria-label": "Today: " + today }, h("span", null, "Today")));
       chart.appendChild(surface);
     }
     return { selectRoot: function (id) { project.value = id; selected = project.value; render(); }, update: function (model) {

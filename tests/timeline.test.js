@@ -7,6 +7,16 @@ const task = (id, minutes = 480, extra = {}) => ({ id, name: id, entries: [], li
 const group = (id, kids, extra = {}) => task(id, null, { linkedIds: kids, ...extra });
 const plan = (cards, extra = {}) => timeline.plan(cards, { start, calendar: { baseFte: 2 }, ...extra });
 
+test("spent segments follow weekends and FTE changes and roll up into an epic", () => {
+  const p = plan([group("epic", ["a", "b"]), task("a", 1920, { entries: [{ minutes: 960 }] }), task("b", 480)], {
+    start: "2026-10-30", calendar: { baseFte: 1, changes: [{ date: "2026-11-02", fte: 2 }] }
+  });
+  assert.deepEqual(p.rows.get("a").spentSegments, [{ start: 0, finish: 3.5 }]);
+  assert.deepEqual(p.rows.get("epic").spentSegments, [{ start: 0, finish: 3.5 }]);
+  assert.deepEqual(p.rows.get("b").spentSegments, []);
+  assert.ok(p.rows.get("epic").finishTime > 3.5, "the unspent part stays scheduled");
+});
+
 test("epic predecessors gate all descendants, including deeply nested tasks", () => {
   const p = plan([group("project", ["e1", "e2"]), group("e1", ["a", "b"]), task("a"), task("b"),
     group("e2", ["c", "sub"], { dependencyIds: ["e1"] }), task("c"), group("sub", ["d"]), task("d")], { rootIds: ["project"] });

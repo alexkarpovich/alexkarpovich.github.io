@@ -208,6 +208,10 @@
           const task = item.task, minutes = step * hours * 60 * item.rate;
           if (task.start == null) { task.start = ymd; task.startTime = elapsed + time; }
           const allocated = task.total - task.remaining;
+          const logged = Math.min(task.spent, task.total);
+          if (logged > allocated + EPS) {
+            task.spentEndTime = elapsed + time + Math.min(minutes, logged - allocated) / (hours * 60 * item.rate);
+          }
           if (task.overrun > EPS && task.overrunStartTime == null && allocated + minutes >= task.estimate - EPS) {
             task.overrunStartTime = elapsed + time + Math.max(0, task.estimate - allocated) / (hours * 60 * item.rate);
           }
@@ -241,6 +245,9 @@
         estimate: ownTask ? ownTask.estimate : null, spent: ownTask ? ownTask.spent : null, overrun: ownTask ? ownTask.overrun : 0,
         overrunStartTime: ownTask ? ownTask.overrunStartTime : null,
         overrunFinishTime: ownTask && ownTask.overrunStartTime != null ? ownTask.finishTime : null,
+        spentSegments: items.filter(function (task) { return task.spentEndTime != null; }).map(function (task) {
+          return { start: task.startTime, finish: task.spentEndTime };
+        }),
         scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
     });
     const incomplete = tasks.filter(function (task) { return !task.done; });
