@@ -18,7 +18,8 @@ test("epic predecessors gate all descendants, including deeply nested tasks", ()
 });
 
 test("child order is priority, independent work runs in parallel and multiple dependencies wait for all", () => {
-  const cards = [group("root", ["a", "b", "c"]), task("a"), task("b", 960), task("c", 480, { dependencyIds: ["a", "b"] })];
+  const cards = [group("root", ["a", "b", "c"]), task("a", 480, { planning: { maxFte: 1 } }),
+    task("b", 960, { planning: { maxFte: 1 } }), task("c", 480, { dependencyIds: ["a", "b"] })];
   const p = plan(cards, { rootIds: ["root"] });
   assert.equal(p.rows.get("a").start, start);
   assert.equal(p.rows.get("b").start, start);
@@ -47,9 +48,38 @@ test("epic caps share the project pool, apply through nesting and can change by 
   assert.equal(capped.finish, "2026-10-28");
 });
 
-test("single tasks default to one FTE and can explicitly use more", () => {
-  assert.equal(plan([task("a", 960)]).finish, "2026-10-27");
+test("single tasks inherit team FTE unless an explicit maximum limits them", () => {
+  assert.equal(plan([task("a", 960)]).finish, start);
+  assert.equal(plan([task("a", 960, { planning: { maxFte: 1 } })]).finish, "2026-10-27");
   assert.equal(plan([task("a", 960, { planning: { maxFte: 2 } })]).finish, start);
+});
+
+test("raising team FTE on November 9 shortens an uncapped task already running since November 5", () => {
+  const cards = [task("phase", 5520)];
+  const options = { start: "2026-11-05", calendar: { baseFte: 1 } };
+  const original = plan(cards, options);
+  assert.equal(original.rows.get("phase").start, "2026-11-05");
+  assert.equal(original.finish, "2026-11-20");
+  options.calendar.changes = [{ date: "2026-11-09", fte: 2 }];
+  const faster = plan(cards, options);
+  assert.equal(faster.rows.get("phase").start, "2026-11-05");
+  assert.equal(faster.finish, "2026-11-13");
+  assert.deepEqual(faster.days.slice(0, 5).map(day => day.minutes), [480, 480, 0, 0, 960]);
+  assert.equal(faster.days.reduce((sum, day) => sum + day.minutes, 0), 5520, "FTE changes duration without changing ETA");
+  const capped = plan([task("phase", 5520, { planning: { maxFte: 1 } })], options);
+  assert.equal(capped.finish, "2026-11-20", "an explicit one-FTE limit remains effective");
+});
+
+test("inherited FTE follows team increases and decreases while respecting dated parent and task limits", () => {
+  const cards = [group("epic", ["phase"], { planning: { maxFte: 1.5, changes: [{ date: "2026-11-10", fte: 2 }] } }),
+    task("phase", 5520, { planning: { changes: [{ date: "2026-11-11", fte: 1 }] } })];
+  const p = plan(cards, { start: "2026-11-05", calendar: { baseFte: 1, changes: [{ date: "2026-11-09", fte: 2 }, { date: "2026-11-12", fte: 0.5 }] } });
+  const allocated = date => p.days.find(day => day.date === date).usedFte;
+  assert.equal(allocated("2026-11-05"), 1);
+  assert.equal(allocated("2026-11-09"), 1.5, "the parent caps the inherited pool");
+  assert.equal(allocated("2026-11-10"), 2, "a dated parent limit releases more capacity");
+  assert.equal(allocated("2026-11-11"), 1, "a dated task limit takes effect during the work");
+  assert.equal(allocated("2026-11-12"), 0.5, "the shared pool still caps every task");
 });
 
 test("fractional allocations release capacity and dependencies within the same day", () => {
@@ -209,7 +239,7 @@ test("an ETA exactly consumed retains its full scheduled duration", () => {
 
 test("native completion skips work while logs do not shorten the full ETA", () => {
   const cards = [task("a", null, { dueComplete: true }), task("b", 840, { entries: [{ minutes: 600 }], planning: { remainingMinutes: 1 }, dependencyIds: ["a"] })];
-  const p = plan(cards);
+  const p = plan(cards, { calendar: { baseFte: 1 } });
   assert.equal(p.finish, "2026-10-27");
   assert.equal(p.days[0].minutes, 480);
   assert.equal(p.rows.get("b").minutes, 840);
@@ -222,7 +252,8 @@ test("native completion skips work while logs do not shorten the full ETA", () =
 test("root selection includes external prerequisites and inherits restrictions from ancestors", () => {
   const p = plan([group("parent", ["child"], { dependencyIds: ["external"], planning: { maxFte: 0.5 } }), task("child"), task("external")], { rootIds: ["child"] });
   assert.equal(p.rows.get("external").finish, start);
-  assert.equal(p.rows.get("child").start, "2026-10-27");
+  assert.equal(p.rows.get("child").start, start);
+  assert.equal(p.rows.get("child").startTime, 0.5, "the prerequisite uses 2 FTE and finishes at midday");
   assert.equal(p.rows.get("child").finish, "2026-10-28");
 });
 

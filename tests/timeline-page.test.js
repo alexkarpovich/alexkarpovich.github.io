@@ -123,6 +123,25 @@ test("board calendar storage preflight and concurrent changes reject writes with
     assert.equal(h.host.querySelector('[type="submit"]').disabled, false);
   }
 });
+
+test("saving and reloading a dated team FTE increase updates bar dates and load for work in progress", async () => {
+  const h = harness({ cards: [{ id: "task", name: "Phase 1" }], timeById: { task: { e: [], lim: 5520 } } });
+  await h.render();
+  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-11-05"; await start.fire("change");
+  assert.match(h.host.querySelector(".timeline-bar").getAttribute("aria-label"), /Start date: 2026-11-05\nEnd date: 2026-11-20/);
+  const add = h.host.querySelectorAll("button").find(button => button.textContent === "+ add FTE change");
+  await add.fire("click");
+  h.host.querySelector('[aria-label="FTE effective from"]').value = "2026-11-09";
+  h.host.querySelector('[aria-label="FTE from this date"]').value = "2";
+  await h.host.querySelector("form").fire("submit");
+  assert.equal(h.writes(), 1);
+  assert.deepEqual(h.shared().timeline, { baseFte: 1, changes: [{ date: "2026-11-09", fte: 2 }] });
+  const expected = /Start date: 2026-11-05\nEnd date: 2026-11-13/;
+  assert.match(h.host.querySelector(".timeline-bar").getAttribute("aria-label"), expected);
+  assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => day.getAttribute("title") === "2026-11-09 · 2 / 2 FTE"));
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-bar").getAttribute("aria-label"), expected, "persisted FTE keeps the recalculated dates after reload");
+});
 test("timeline page recovers after a failed initial load and read-only viewers cannot save", async () => {
   const h = harness({ readonly: true }); h.fail(true); await h.render();
   assert.match(h.host.textContent, /offline/);

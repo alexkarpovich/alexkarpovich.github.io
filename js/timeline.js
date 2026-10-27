@@ -162,7 +162,9 @@
         deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
           const ancestor = g.byId.get(key), setting = ancestor && ancestor.planning || {};
-          return { id: key, calendar: normalizeCalendar({ baseFte: setting.maxFte, changes: setting.changes }, key === id && !estimatedGroups.has(id) ? 1 : 100) };
+          // An empty Maximum FTE inherits the pool for tasks and epics alike.
+          // Only an explicit limit may prevent a team increase from speeding up work.
+          return { id: key, calendar: normalizeCalendar({ baseFte: setting.maxFte, changes: setting.changes }, 100) };
         }) };
     });
     const byTask = new Map(tasks.map(function (task) { return [task.id, task]; }));

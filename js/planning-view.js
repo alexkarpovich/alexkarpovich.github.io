@@ -106,7 +106,7 @@
     const planningError = h("div", { class: "error", role: "alert" });
     const estimate = h("input", { id: id + "-estimate", name: "estimate", placeholder: "1w", autocomplete: "off", "aria-label": "ETA", maxlength: "40" });
     const calendarHost = h("div");
-    const editor = calendarEditor(calendarHost, { label: "Maximum FTE", hint: "Tasks default to 1 FTE. Epics inherit the shared pool. A maximum limits the pool; it does not add capacity." });
+    const editor = calendarEditor(calendarHost, { label: "Maximum FTE", hint: "Leave empty to inherit the team's available FTE and parent limits. Set 1 to keep a task on one FTE. A maximum limits the pool; it does not add capacity." });
     editor.base.required = false; editor.base.placeholder = "Inherit";
     const previewValue = h("strong", { class: "planning-preview-value" });
     const editPlanning = h("button", { type: "button", class: "entry-action", "aria-label": "Edit planning", title: "Edit planning", "aria-controls": id + "-planning-form", "aria-expanded": "false", onclick: function () {
