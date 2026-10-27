@@ -44,21 +44,54 @@ Log time on cards (30m, 1h, 1d), badge totals, filtered board reports, XLSX expo
 
 ## 4. Description (long — directory listing)
 
+The block below is Markdown for the Trello listing, with short feature sections and inline GIFs inspired by the [Hello Epics listing](https://trello.com/power-ups/58c85f41d7f012a1879c7b2e). The recordings use the actual Power-Up components with isolated English sample data. Publish the generated `img/demo/` assets with `dist/` before pasting the description into Apps Admin. This repository edit does not update the directory listing.
+
 ```text
-Time Tracking adds lightweight time logging directly on Trello cards.
+Track time. Connect your tasks. Plan your next delivery.
 
-• Log time with flexible formats: 30m, 1h 40m, 1:40, 1d, 1w, 1M (work-day/week/month settings are configurable per board).
-• See logged time on card badges and open a full log from the card back.
-• Open a board-wide Time report with date range, author, and label filters.
-• Export filtered results as an Excel workbook (.xlsx) with Report, Entries, and Epics sheets.
-• Set time limits on “epic” cards that track child cards linked in the Power-Up list; remaining time and an estimated finish date appear when child data is available (nested sub-tasks roll up; time on the epic card itself is excluded).
-• Optional cached epic rollups in shared card data speed up badges and reopening; the cache is rebuilt from logs when needed and may be dropped if card storage is full.
+Time Tracking brings time logs, epic budgets, team reports and a capacity-aware timeline to your Trello board. Follow the work from the first logged minute to the forecast finish date, without another account.
 
-All time entries and board settings are stored in Trello shared Power-Up data on your boards—there is no vendor backend or extra login.
+## Log time as you work
 
-Optional one-time read access: if you use epic remaining time and Trello cannot return child time logs through the SDK, click “Connect” in settings. This uses Trello’s OAuth with read-only scope; you can disconnect anytime in Power-Up settings or Trello account → Applications.
+Add time directly on a card using formats such as 30m, 1h 30m, 1:30 or 1d. Include a comment, review the history and edit your own entries. Card badges keep logged totals visible on the board.
 
-Free to use. Works on boards in your Workspace after you enable the Power-Up from the board menu.
+![Log time and add a comment on a card](https://alexkarpovich-github-io.pages.dev/img/demo/time.gif)
+
+## Bring tasks together
+
+Link existing cards by name or URL to build epics and nested task groups on your board. Set an estimate and see child time roll up into the epic’s spent and remaining budget. Reorder children to set planning priority.
+
+![Add a child card and update an epic’s time budget](https://alexkarpovich-github-io.pages.dev/img/demo/epics.gif)
+
+## Plan around real capacity
+
+Open Timeline to see your project hierarchy, dependencies and forecast dates in one view. Set team availability in FTE and adjust it as capacity changes. The timeline accounts for weekends, excluded dates and explicit task or epic FTE limits.
+
+Grey progress shows logged time; blue shows scheduled work. Red segments highlight time over an estimate, and a vertical Today line marks the current date. Click a bar for its dates, ETA, spent time and overrun.
+
+Timeline schedules the full ETA plus any overrun. Spent time is shown as progress and does not reduce the scheduled estimate. Each explicit child or epic ETA adds work to the plan.
+
+![Inspect dependencies and recalculate the timeline with more team capacity](https://alexkarpovich-github-io.pages.dev/img/demo/timeline.gif)
+
+## Turn time into a clear report
+
+Review board-wide time by date range, label or author. Narrow the report to the work you need, then download an Excel workbook with Report, Entries and Epics sheets.
+
+![Filter a time report and download an Excel workbook](https://alexkarpovich-github-io.pages.dev/img/demo/reports.gif)
+
+## Make it fit your team
+
+Configure working hours per day, working days per week and month, week start and excluded dates. Your time formats and forecasts follow the board’s settings. The interface supports light and dark themes.
+
+## Keep your data in Trello
+
+Time entries and settings are stored in Trello shared Power-Up data. There is no separate vendor database or additional account. Shared entries are visible to people who can access the board.
+
+If Trello cannot return child time logs through its Power-Up SDK, optional read-only Trello authorization can help load them. You can disconnect in the Power-Up settings or your Trello account’s Applications page.
+
+Free to use. Enable Time Tracking on your board to get started.
+
+The demos above use sample data in a local preview of the Power-Up interface.
 ```
 
 ---
@@ -160,5 +193,11 @@ Power-Up ID: POWER_UP_ID
 | Logo | `img/logo.svg` |
 | Add button icon | `img/add.svg` |
 | Report button icons (light/dark) | `img/report-on-light.svg`, `img/report-on-dark.svg` |
+| Time log demo | `img/demo/time.gif` (also `.mp4` and `.png`) |
+| Epic / child cards demo | `img/demo/epics.gif` (also `.mp4` and `.png`) |
+| Timeline / FTE demo | `img/demo/timeline.gif` (also `.mp4` and `.png`) |
+| Filtered report / export demo | `img/demo/reports.gif` (also `.mp4` and `.png`) |
+| Local media review | `img/demo/index.html` |
+| Actual workbook downloaded during recording | `img/demo/sample-time-report.xlsx` |
 
-Listing often wants PNG/JPEG screenshots you capture from a live board—not from `preview.html` alone.
+To reproduce the recordings, install Playwright in a separate tooling directory and run `NODE_PATH=/path/to/tooling/node_modules node scripts/record-demo.cjs`. Chromium and `ffmpeg` must be installed. The script uses local files and sample data; it never connects to a Trello account. Runtime npm dependencies are unchanged. The GIFs can illustrate the listing; a reviewer may also request screenshots from an actual board.
