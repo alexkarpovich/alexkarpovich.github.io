@@ -78,6 +78,16 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
   assert.match(h.host.textContent, /Included in EPIC ETA/);
   assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
 });
+test("epic progress combines separated logged intervals into a single leading grey segment", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "A" }, { id: "b", name: "B" }],
+    timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [["a1", 20261020, 240, 0]], lim: 480 }, b: { e: [["b1", 20261020, 240, 0]], lim: 480 } } });
+  await h.render();
+  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
+  const epic = h.host.querySelector(".is-group");
+  assert.equal(epic.querySelectorAll(".timeline-spent").length, 1);
+  assert.equal(epic.querySelector(".timeline-spent").getAttribute("style"), "left:0px;width:22px");
+  assert.equal(epic.getAttribute("style"), "left:0px;width:43px");
+});
 test("an over-limit phase and epic both draw bars with visible overrun and planned load", async () => {
   const h = harness({ rootId: "epic", cards: [
     { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },

@@ -200,9 +200,8 @@
             }
           }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings)));
           if (!barPositions.has(row.id)) barPositions.set(row.id, { left: left, right: left + Math.max(3, end - left - 1), y: index * 52 + 26 });
-          row.spentSegments.forEach(function (segment) {
-            bar.appendChild(h("div", { class: "timeline-spent", style: "left:" + (segment.start * px - left) + "px;width:" + (segment.finish - segment.start) * px + "px" }));
-          });
+          const spentWidth = row.spentSegments.reduce(function (sum, segment) { return sum + (segment.finish - segment.start) * px; }, 0);
+          if (spentWidth) bar.appendChild(h("div", { class: "timeline-spent", style: "left:0px;width:" + spentWidth + "px" }));
           if (row.overrunStartTime != null) {
             const overrunLeft = Math.max(0, row.overrunStartTime * px - left);
             const overrunEnd = row.overrunFinishTime != null ? row.overrunFinishTime * px : end;
