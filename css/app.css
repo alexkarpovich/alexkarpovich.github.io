@@ -519,7 +519,7 @@ table { width: 100%; border: 0; margin: 0; border-collapse: collapse; background
 thead, tbody { background: var(--card); }
 th, td { text-align: left; padding: 7px 8px; border: 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; position: sticky; top: 0; background: var(--card); }
-.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .group-row td { background: var(--bg); font-weight: 600; }
 
 .labels { display: inline-flex; gap: 4px; flex-wrap: wrap; }
