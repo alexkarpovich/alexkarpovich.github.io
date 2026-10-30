@@ -59,8 +59,12 @@
       root.clearTimeout(hideTimer);
       if (!pinned && document.activeElement !== activeBar) hideTimer = root.setTimeout(closeTooltip, 150);
     }
-    function openTooltip(bar, row, pin, pointerX) {
+    function openTooltip(bar, row, pin) {
       cancelTimers();
+      if (activeBar === bar && !tooltip.hidden) {
+        pinned = pinned || pin;
+        return;
+      }
       if (activeBar && activeBar !== bar) closeTooltip();
       activeBar = bar; pinned = pin;
       const duration = function (value, fallback) { return value != null ? root.TimeDuration.formatDuration(value, settings) : fallback; };
@@ -79,15 +83,21 @@
         field("Remaining", duration(row.minutes), "is-eta"),
         field("Over ETA", duration(row.overrun || 0), over ? "is-over" : "is-clear")
       ]));
-      tooltip.appendChild(h("p", { class: "timeline-tooltip-hint" }, pinned ? "Click again or press Esc to close" : "Click bar to keep open · Esc to close"));
+      tooltip.appendChild(h("p", { class: "timeline-tooltip-hint" }, "Click to pin · Click again or press Esc to close"));
+      // Measure at a neutral position without painting or extending page overflow.
+      // A previous popup's coordinates must not affect the new popup's layout.
+      tooltip.style.visibility = "hidden";
+      tooltip.style.left = "0px";
+      tooltip.style.top = "0px";
       tooltip.hidden = false;
       bar.setAttribute("aria-describedby", tooltip.id); bar.setAttribute("aria-expanded", "true");
       const anchor = bar.getBoundingClientRect(), box = tooltip.getBoundingClientRect();
-      const x = Number.isFinite(pointerX) ? pointerX : (Math.max(8, anchor.left) + Math.min(root.innerWidth - 8, anchor.right)) / 2;
+      const x = (Math.max(8, anchor.left) + Math.min(root.innerWidth - 8, anchor.right)) / 2;
       const left = Math.max(8, Math.min(x - box.width / 2, root.innerWidth - box.width - 8));
       const top = anchor.bottom + box.height + 12 <= root.innerHeight ? anchor.bottom + 10 : anchor.top - box.height - 10;
       tooltip.style.left = left + "px";
       tooltip.style.top = Math.max(8, Math.min(top, root.innerHeight - box.height - 8)) + "px";
+      tooltip.style.visibility = "visible";
     }
     tooltip.addEventListener("pointerenter", function () { root.clearTimeout(hideTimer); });
     tooltip.addEventListener("pointerleave", delayClose);
@@ -237,7 +247,7 @@
           } }, hasKids ? collapsed.has(item.key) ? "▸" : "▾" : "·");
         const label = h("div", { class: "timeline-card-label", style: "padding-left:" + Math.min(item.depth, 8) * 16 + "px" }, [toggle, h("div", { class: "timeline-card-text" }, [
           card && card.url ? h("a", { href: card.url, target: "_blank", rel: "noopener", title: card.name }, card.name) : h("span", null, card ? card.name : "Unavailable card"),
-          h("small", { class: "muted", title: row.status }, root.TimeDuration.formatDuration(row.spent || 0, settings) + " spent · " + root.TimeDuration.formatDuration(row.minutes, settings) + " left" + (!row.complete ? " · " + row.status : ""))
+          h("small", { class: "muted", title: row.status }, "ETA " + (row.estimate != null ? root.TimeDuration.formatDuration(row.estimate, settings) : "—") + " · " + root.TimeDuration.formatDuration(row.spent || 0, settings) + " spent · " + root.TimeDuration.formatDuration(row.minutes, settings) + " left" + (!row.complete ? " · " + row.status : ""))
         ])]);
         const lane = h("div", { class: "timeline-lane", style: "width:" + width + "px" });
         if (row.start) {
@@ -246,16 +256,16 @@
           const end = Math.min(width, Math.max(left + 1, ...segmentEnds));
           const bar = h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
             style: "left:" + left + "px;width:" + Math.max(1, end - left) + "px", role: "button", tabindex: "0", "aria-label": barDetails, "aria-expanded": "false",
-            onpointerenter: function (event) {
+            onpointerenter: function () {
               root.clearTimeout(hideTimer);
               if (pinned) return;
               root.clearTimeout(showTimer);
-              showTimer = root.setTimeout(function () { openTooltip(bar, row, false, event.clientX); }, 400);
+              showTimer = root.setTimeout(function () { openTooltip(bar, row, false); }, 400);
             },
             onpointerleave: delayClose,
             onfocus: function () { if (!pinned) openTooltip(bar, row, false); },
             onblur: delayClose,
-            onclick: function (event) { if (activeBar === bar && pinned) closeTooltip(); else openTooltip(bar, row, true, event.clientX); },
+            onclick: function () { if (activeBar === bar && pinned) closeTooltip(); else openTooltip(bar, row, true); },
             onkeydown: function (event) {
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (activeBar === bar && pinned) closeTooltip(); else openTooltip(bar, row, true); }
             }

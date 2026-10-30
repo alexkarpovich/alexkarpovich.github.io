@@ -212,6 +212,49 @@ test("styled timeline details delay hover, allow pointer transfer and pin on cli
   assert.equal(popup.hidden, true, "a second click toggles the tooltip closed");
 });
 
+test("timeline tooltip stays anchored across hover, focus and click", async () => {
+  const h = harness(); const advance = tooltipClock(h); await h.render();
+  const bar = h.host.querySelector(".timeline-bar"), popup = h.host.querySelector(".timeline-tooltip");
+  await bar.fire("pointerenter", { clientX: 105 }); advance(400);
+  const left = popup.style.left, top = popup.style.top;
+  const hint = popup.querySelector(".timeline-tooltip-hint").textContent;
+  assert.equal(left, "100px", "centers on the bar rather than the pointer");
+  await bar.fire("focus");
+  assert.equal(popup.style.left, left);
+  assert.equal(popup.style.top, top);
+  await bar.fire("click", { clientX: 195 });
+  assert.equal(popup.querySelector(".timeline-tooltip-hint").textContent, hint, "pinning must not change text wrapping or popup height");
+  assert.equal(popup.style.left, left);
+  assert.equal(popup.style.top, top);
+  assert.match(popup.querySelector(".timeline-tooltip-hint").textContent, /Click again/);
+  await h.document.fire("keydown", { key: "Escape" });
+  await bar.fire("click", { clientX: 195 });
+  assert.equal(popup.style.left, left);
+  assert.equal(popup.style.top, top);
+});
+
+test("timeline tooltip measures while invisible and discards its previous position before reopening", async () => {
+  const h = harness(); await h.render();
+  const bar = h.host.querySelector(".timeline-bar"), popup = h.host.querySelector(".timeline-tooltip");
+  let measurements = 0;
+  popup.getBoundingClientRect = () => {
+    measurements++;
+    assert.equal(popup.hidden, false, "the popup participates in layout for measurement");
+    assert.equal(popup.style.visibility, "hidden", "the popup is not painted before placement");
+    assert.equal(popup.style.left, "0px");
+    assert.equal(popup.style.top, "0px");
+    return { width: 340, height: 250 };
+  };
+  for (let i = 0; i < 2; i++) {
+    await bar.fire("click");
+    assert.equal(popup.style.visibility, "visible");
+    assert.equal(popup.style.left, "8px");
+    assert.equal(popup.style.top, "130px");
+    await h.document.fire("keydown", { key: "Escape" });
+  }
+  assert.equal(measurements, 2);
+});
+
 test("timeline tooltip supports keyboard access, dismisses stale content and stays inside viewport", async () => {
   const h = harness(); const advance = tooltipClock(h); await h.render();
   let bar = h.host.querySelector(".timeline-bar");
