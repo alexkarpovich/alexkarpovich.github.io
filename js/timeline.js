@@ -8,6 +8,15 @@
     return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "1970-01-01" && value <= "2999-12-31" &&
       Number.isFinite(Date.parse(value + "T12:00:00Z")) && new Date(value + "T12:00:00Z").toISOString().slice(0, 10) === value;
   }
+  function entryDate(entry) {
+    const value = String(entry.ymd || "");
+    const date = value.slice(0, 4) + "-" + value.slice(4, 6) + "-" + value.slice(6, 8);
+    return validDate(date) ? date : null;
+  }
+  function localToday() {
+    const date = new Date();
+    return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+  }
   function fte(value) { return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100; }
   function normalizeCalendar(raw, fallback) {
     raw = raw || {};
@@ -61,7 +70,12 @@
   }
   function plan(cards, options) {
     options = options || {};
-    if (!validDate(options.start)) throw new Error("Pick a valid forecast start date.");
+    if (!validDate(options.start)) throw new Error("Pick a valid start date.");
+    const today = validDate(options.today) ? options.today : localToday();
+    const forecastStart = options.start > today ? options.start : today;
+    const offset = date => (Date.parse(date) - Date.parse(options.start)) / 86400000;
+    const boundary = offset(today) + 0.5;
+    const loggedEntries = card => (card && card.entries || []).filter(entry => !entryDate(entry) || entryDate(entry) <= today);
     const g = graph(cards), calendar = normalizeCalendar(options.calendar);
     const roots = options.rootIds || cards.filter(function (card) { return !g.parents.has(card.id); }).map(function (card) { return card.id; });
     const scope = new Set(), completed = new Map();
@@ -102,16 +116,10 @@
         queue.push(...(g.parents.get(parent) || []));
       }
     });
-    function aggregateSpent(id) {
-      const seen = new Set();
-      function total(key) {
-        if (seen.has(key)) return 0;
-        seen.add(key);
-        const card = g.byId.get(key), kids = card && (card.linkedIds || card.kids || []);
-        return kids && kids.length ? kids.reduce(function (sum, child) { return sum + total(child); }, 0) :
-          (card && card.entries || []).reduce(function (sum, entry) { return sum + entry.minutes; }, 0);
-      }
-      return total(id);
+    function workSpent(id) {
+      const ids = [id];
+      estimateOwner.forEach((owner, child) => { if (owner === id) ids.push(child); });
+      return ids.reduce((sum, key) => sum + loggedEntries(g.byId.get(key)).reduce((total, entry) => total + entry.minutes, 0), 0);
     }
     const leafCache = new Map();
     function leaves(id, path) {
@@ -149,16 +157,14 @@
     }
     const tasks = order.map(function (id) {
       const card = g.byId.get(id), done = !!card && (estimatedGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
-      const spent = estimatedGroups.has(id) ? aggregateSpent(id) : (card && card.entries || []).reduce(function (sum, e) { return sum + e.minutes; }, 0);
+      const spent = workSpent(id);
       const estimate = card && card.limitMinutes;
       const overrun = estimate != null ? Math.max(0, spent - estimate) : 0;
-      // The timeline shows the full estimate, extended by any logged overrun.
-      // Spent time must not shrink an estimated card to just its remaining work.
-      const remaining = done ? 0 : estimate != null ? estimate + overrun : null;
+      const remaining = done ? 0 : estimate != null ? Math.max(0, estimate - spent) : null;
       const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
-        !done && remaining == null ? "Set ETA" : "";
+        !done && remaining == null ? "Set ETA" : !done && remaining <= EPS ? "ETA exhausted · update ETA or mark Done" : "";
       return { id: id, estimate: estimate, spent: spent, overrun: overrun, nativeDone: done, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
-        start: null, finish: done && !issue ? options.start : null, startTime: null, finishTime: done && !issue ? 0 : null, overrunStartTime: null,
+        start: null, finish: done && !issue ? forecastStart : null, startTime: null, finishTime: done && !issue ? offset(forecastStart) : null,
         deps: workDependencies(id),
         caps: Array.from(g.ancestors(id)).concat(id).map(function (key) {
           const ancestor = g.byId.get(key), setting = ancestor && ancestor.planning || {};
@@ -169,28 +175,19 @@
     });
     const byTask = new Map(tasks.map(function (task) { return [task.id, task]; }));
     function ready(task) { return !task.deps.some(function (id) { return !byTask.has(id) || !byTask.get(id).done; }); }
-    function settleMilestones(ymd, time) {
-      let changed;
-      do {
-        changed = false;
-        tasks.forEach(function (task) {
-          if (task.done || task.issue || task.remaining > EPS || !ready(task)) return;
-          task.start = task.finish = ymd; task.startTime = task.finishTime = time;
-          task.done = true; changed = true;
-        });
-      } while (changed);
-    }
     const days = [];
     const hours = Number(options.settings && options.settings.hoursPerDay) || 8;
     const excluded = new Set(options.settings && options.settings.excludedDates || []);
-    const date = new Date(options.start + "T12:00:00Z");
-    let elapsed = 0;
+    const date = new Date(forecastStart + "T12:00:00Z");
+    let elapsed = offset(forecastStart);
     const horizon = Math.min(options.horizon || 3650, 3650);
     for (let day = 0; day < horizon && tasks.some(function (task) { return !task.done; }); day++) {
       const ymd = date.toISOString().slice(0, 10), workday = ![0, 6].includes(date.getUTCDay()) && !excluded.has(ymd);
       const available = workday ? capacity(calendar, ymd) : 0;
       let time = 0, used = 0;
-      settleMilestones(ymd, elapsed);
+      // Split today's column visually: logs on the left, forecast on the right.
+      // Capacity still represents a full configured workday, not half a workday.
+      const position = value => elapsed + (ymd === today ? 0.5 + value * 0.5 : value);
       while (time < 1 - EPS && available > EPS) {
         let free = available;
         const capUsed = new Map(), running = [];
@@ -206,23 +203,29 @@
         const step = Math.min(1 - time, ...running.map(function (item) { return item.task.remaining / (hours * 60 * item.rate); }));
         running.forEach(function (item) {
           const task = item.task, minutes = step * hours * 60 * item.rate;
-          if (task.start == null) { task.start = ymd; task.startTime = elapsed + time; }
-          const allocated = task.total - task.remaining;
-          const logged = Math.min(task.spent, task.total);
-          if (logged > allocated + EPS) {
-            task.spentEndTime = elapsed + time + Math.min(minutes, logged - allocated) / (hours * 60 * item.rate);
-          }
-          if (task.overrun > EPS && task.overrunStartTime == null && allocated + minutes >= task.estimate - EPS) {
-            task.overrunStartTime = elapsed + time + Math.max(0, task.estimate - allocated) / (hours * 60 * item.rate);
-          }
+          if (task.start == null) { task.start = ymd; task.startTime = position(time); }
           task.remaining = Math.max(0, task.remaining - minutes); task.lastDate = ymd; used += minutes;
-          if (task.remaining < EPS) { task.done = true; task.finish = ymd; task.finishTime = elapsed + time + step; }
+          if (task.remaining < EPS) { task.done = true; task.finish = ymd; task.finishTime = position(time + step); }
         });
         time += step;
-        settleMilestones(ymd, elapsed + time);
       }
       days.push({ date: ymd, availableFte: available, usedFte: used / (hours * 60), minutes: used, workday: workday });
       date.setUTCDate(date.getUTCDate() + 1); elapsed++;
+    }
+    function history(id) {
+      const seen = new Set(), dates = new Map();
+      function visit(key) {
+        if (seen.has(key)) return;
+        seen.add(key);
+        const card = g.byId.get(key);
+        loggedEntries(card).forEach(function (entry) {
+          const date = entryDate(entry);
+          if (date) dates.set(date, (dates.get(date) || 0) + entry.minutes);
+        });
+        if (card) (card.linkedIds || card.kids || []).forEach(visit);
+      }
+      visit(id);
+      return Array.from(dates, ([date, minutes]) => ({ date, minutes, start: offset(date), finish: Math.min(offset(date) + 1, boundary) })).sort((a, b) => a.start - b.start);
     }
     const rows = new Map();
     scope.forEach(function (id) {
@@ -230,41 +233,40 @@
       const complete = items.length > 0 && items.every(function (task) { return task.done; }) && !cycleIds.has(id);
       const starts = items.map(function (task) { return task.start; }).filter(Boolean).sort();
       const finishes = items.map(function (task) { return task.finish; }).filter(Boolean).sort();
-      const scheduledThrough = items.map(function (task) { return task.lastDate || task.finish; }).filter(Boolean).sort().pop() || null;
       const issues = Array.from(new Set(items.map(function (task) { return task.issue; }).filter(Boolean)));
       const owner = estimateOwner.get(id), ownerCard = owner && g.byId.get(owner);
       const ownTask = byTask.get(id);
+      const actual = history(id);
+      const spentMinutes = actual.reduce((sum, segment) => sum + segment.minutes, 0);
+      const nativeDone = items.length > 0 && items.every(task => task.nativeDone);
+      const actualFinish = actual.length ? actual[actual.length - 1].date : null;
       const startTimes = items.map(function (task) { return task.startTime; }).filter(function (value) { return value != null; });
-      const finishTimes = items.map(function (task) { return task.finishTime; }).filter(function (value) { return value != null; });
       const status = owner && !items.length ? "Included in " + (ownerCard ? ownerCard.name : "parent") + " ETA" :
         complete ? (items.every(function (task) { return task.nativeDone; }) ? "Done" : "Scheduled") :
           issues.join(" · ") || "Blocked / beyond 10-year horizon";
-      rows.set(id, { id: id, card: card, start: starts[0] || (complete ? options.start : null), finish: complete ? finishes[finishes.length - 1] : null,
-        startTime: startTimes.length ? Math.min(...startTimes) : complete ? 0 : null,
-        finishTime: complete && finishTimes.length ? Math.max(...finishTimes) : null,
-        estimate: ownTask ? ownTask.estimate : null, spent: ownTask ? ownTask.spent : null, overrun: ownTask ? ownTask.overrun : 0,
-        overrunStartTime: ownTask ? ownTask.overrunStartTime : null,
-        overrunFinishTime: ownTask && ownTask.overrunStartTime != null ? ownTask.finishTime : null,
-        spentSegments: items.filter(function (task) { return task.spentEndTime != null; }).map(function (task) {
-          return { start: task.startTime, finish: task.spentEndTime };
-        }),
-        scheduledThrough: scheduledThrough, minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
+      rows.set(id, { id: id, card: card, start: actual.length ? actual[0].date : starts[0] || (complete ? forecastStart : null), finish: nativeDone && actualFinish ? actualFinish : complete ? finishes[finishes.length - 1] : null,
+        startTime: actual.length ? actual[0].start : startTimes.length ? Math.min(...startTimes) : complete ? offset(forecastStart) : null,
+        estimate: ownTask ? ownTask.estimate : null, spent: actual.length ? spentMinutes : ownTask ? ownTask.spent : 0, overrun: ownTask ? ownTask.overrun : 0,
+        spentSegments: actual,
+        remainingSegments: items.filter(task => task.startTime != null && !task.nativeDone).map(task => ({ start: task.startTime, finish: task.finishTime != null ? task.finishTime : offset(task.lastDate) + 1 })),
+        minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
     });
     const incomplete = tasks.filter(function (task) { return !task.done; });
     if (incomplete.length) warnings.push(incomplete.length + " work item(s) have no reliable finish. Check ETA, dependencies and available FTE.");
     // Keep useful context for a finished/empty plan without rendering ten years of blocked days.
     const lastWork = days.findLastIndex(function (day) { return day.minutes > EPS; });
-    const detailDays = Math.min(3650, Math.max(0, ...Array.from(rows.values()).map(function (row) {
-      return row.finish || row.scheduledThrough ? Math.round((Date.parse(row.finish || row.scheduledThrough) - Date.parse(options.start)) / 86400000) + 1 : 0;
-    })));
-    const visibleCount = Math.max(28, lastWork + 1, detailDays);
-    const visibleDays = days.slice(0, visibleCount);
+    const visibleCount = Math.max(28, offset(forecastStart) + lastWork + 1, boundary + 1);
+    const firstTracked = Array.from(rows.values()).flatMap(row => row.spentSegments).map(segment => segment.date).sort()[0] || today;
+    if (Array.from(scope).some(id => (g.byId.get(id)?.entries || []).some(entry => entryDate(entry) > today))) warnings.push("Future-dated entries excluded from actuals and remaining work.");
+    const dayMap = new Map(days.map(day => [day.date, day]));
+    const visibleDays = [];
     while (visibleDays.length < visibleCount) {
       const next = new Date(options.start + "T12:00:00Z"); next.setUTCDate(next.getUTCDate() + visibleDays.length);
       const ymd = next.toISOString().slice(0, 10), workday = ![0, 6].includes(next.getUTCDay()) && !excluded.has(ymd);
-      visibleDays.push({ date: ymd, availableFte: workday ? capacity(calendar, ymd) : 0, usedFte: 0, minutes: 0, workday: workday });
+      visibleDays.push(dayMap.get(ymd) || { date: ymd, availableFte: workday ? capacity(calendar, ymd) : 0, usedFte: 0, minutes: 0, workday: workday });
     }
     return { roots: roots, rows: rows, tasks: tasks, days: visibleDays, warnings: warnings, complete: !incomplete.length && !cycleIds.size,
+      start: options.start, today: today, firstTracked: firstTracked, boundary: boundary,
       finish: incomplete.length || cycleIds.size ? null : tasks.map(function (task) { return task.finish; }).filter(Boolean).sort().pop() || null,
       graph: g, calendar: calendar };
   }

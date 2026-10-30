@@ -64,7 +64,7 @@
     function paintDependencyForm() {
       const writable = !!model && model.canWrite !== false;
       form.hidden = !writable || !addingDependency;
-      add.hidden = !writable || addingDependency;
+      add.hidden = !writable;
       add.setAttribute("aria-expanded", String(addingDependency));
     }
     function close(restoreFocus) {
@@ -72,7 +72,8 @@
       if (restoreFocus !== false) add.focus();
     }
     function choose(card) { selected = card; input.value = card.name; hide(); input.focus(); }
-    const add = h("button", { type: "button", class: "button-link", "aria-expanded": "false", "aria-controls": id + "-form", onclick: function () { addingDependency = true; paintDependencyForm(); input.focus(); } }, "+ add dependency");
+    const add = h("button", { type: "button", class: "entry-action", "aria-label": "Add dependency", title: "Add dependency", "aria-expanded": "false", "aria-controls": id + "-form", onclick: function () { addingDependency = true; paintDependencyForm(); input.focus(); } });
+    add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>';
     const form = h("form", { id: id + "-form", class: "dependency-form link-form", hidden: true }, [h("div", { class: "control-row" }, [h("div", { class: "child-picker" }, [input, suggestions]),
       h("button", { type: "submit", class: "button mod-primary" }, "Add"), h("button", { type: "button", class: "button-link", onclick: close }, "Cancel")])]);
     input.addEventListener("input", async function () {
@@ -182,8 +183,8 @@
     const details = h("section", { class: "planning-details", "aria-labelledby": id + "-planning-title" }, [heading, fields]);
     const timeline = h("button", { type: "button", class: "button-link", onclick: function () { handlers.onTimeline(); } }, "Open timeline ↗");
     (planningHost || host).appendChild(details);
-    host.appendChild(h("section", { class: "card-planning" }, [h("div", { class: "planning-heading" }, [h("strong", null, "Depends on"), timeline]),
-      list, inherited, add, form, error, inspect, inspectStatus]));
+    host.appendChild(h("section", { class: "card-planning" }, [h("div", { class: "planning-heading" }, [h("div", { class: "planning-heading-label" }, [h("strong", null, "Depends on"), add]), timeline]),
+      list, inherited, form, error, inspect, inspectStatus]));
     return { update: function (next) {
       const changed = !model || model.cardId !== next.cardId;
       model = next;
@@ -197,7 +198,6 @@
             error.textContent = ""; handlers.onDependencyRemove(card.id).catch(function (e) { error.textContent = e.message; });
           } }, "Remove")); list.appendChild(row);
         });
-        if (!(next.dependencies || []).length) list.appendChild(h("p", { class: "hint" }, "No direct dependencies."));
         (next.inheritedDependencies || []).forEach(function (item) { inherited.appendChild(h("p", { class: "hint" }, ["↳ " + item.name + " · inherited from ", item.parentUrl ? h("a", { href: item.parentUrl, target: "_blank", rel: "noopener" }, item.parentName) : item.parentName])); });
       }
       const planningKey = JSON.stringify([next.cardId, next.planning]);

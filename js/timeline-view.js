@@ -14,15 +14,38 @@
     return path + " L" + points[points.length - 1].join(" ");
   }
   function mount(host, handlers) {
-    let cards = [], settings = {}, savedCalendar = null, calendar = { baseFte: 1, changes: [] }, selected = "", initialized = false, dirty = false;
+    let cards = [], settings = {}, savedCalendar = null, calendar = { baseFte: 1, changes: [] }, selected = "", initialized = false, dirty = false, customStart = !!handlers.start;
     const collapsed = new Set();
-    const project = h("select", { "aria-label": "Project" });
-    const start = h("input", { type: "date", min: "1970-01-01", max: "2999-12-31", required: true, "aria-label": "Forecast start", value: handlers.start || root.TimeDuration.formatYmd(new Date()) });
+    const listId = "timeline-projects-" + (++tooltipNumber);
+    const project = h("input", { type: "search", "aria-label": "Project", role: "combobox", "aria-autocomplete": "list", "aria-controls": listId, "aria-expanded": "false", autocomplete: "off", placeholder: "Search projects or cards" });
+    const projects = h("div", { id: listId, class: "child-suggestions timeline-project-options", role: "listbox", hidden: true });
+    let choices = [], matches = [], active = -1;
+    function hideProjects() {
+      projects.hidden = true; active = -1;
+      project.setAttribute("aria-expanded", "false"); project.removeAttribute("aria-activedescendant");
+    }
+    function showProjects(query) {
+      matches = choices.filter(choice => choice.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+      clear(projects); active = -1; project.removeAttribute("aria-activedescendant");
+      matches.forEach((choice, index) => projects.appendChild(h("div", {
+        id: listId + "-" + index, class: "child-suggestion", role: "option", "aria-selected": "false",
+        onmousedown: event => event.preventDefault(), onclick: function () { choose(choice.id); render(); }
+      }, choice.name)));
+      if (!matches.length) projects.appendChild(h("p", { class: "hint" }, "No matching cards"));
+      projects.hidden = false; project.setAttribute("aria-expanded", "true");
+    }
+    function choose(id) {
+      selected = cards.some(card => card.id === id) ? id : "";
+      hideProjects();
+      project.value = (choices.find(choice => choice.id === selected) || {}).name || "All projects";
+    }
+    const dateField = h("div", { class: "timeline-date" });
+    const start = h("input", { type: "date", min: "1970-01-01", max: "2999-12-31", required: true, "aria-label": "Timeline start", value: handlers.start || root.TimeDuration.formatYmd(new Date()) });
     const scale = h("select", { "aria-label": "Timeline scale" }, [h("option", { value: "weeks" }, "Weeks"), h("option", { value: "months" }, "Months")]);
     const summary = h("p", { class: "timeline-summary", role: "status", "aria-live": "polite" });
     const error = h("div", { class: "error", role: "alert" });
     const warnings = h("div", { class: "timeline-warnings" });
-    const chart = h("div", { class: "timeline-scroll", tabindex: "0", "aria-label": "Project timeline. Scroll horizontally to see more dates." });
+    const chart = h("div", { class: "timeline-scroll", tabindex: "0", "aria-label": "Project timeline fitted to window width." });
     const tooltip = h("div", { class: "timeline-tooltip", id: "timeline-tooltip-" + (++tooltipNumber), role: "tooltip", hidden: true });
     let activeBar = null, pinned = false, showTimer = null, hideTimer = null;
     function cancelTimers() { root.clearTimeout(showTimer); root.clearTimeout(hideTimer); }
@@ -53,6 +76,7 @@
       tooltip.appendChild(h("dl", { class: "timeline-tooltip-metrics" }, [
         field("ETA", duration(row.estimate, "Not set"), "is-eta"),
         field("Spent", duration(row.spent, "Unavailable"), "is-spent"),
+        field("Remaining", duration(row.minutes), "is-eta"),
         field("Over ETA", duration(row.overrun || 0), over ? "is-over" : "is-clear")
       ]));
       tooltip.appendChild(h("p", { class: "timeline-tooltip-hint" }, pinned ? "Click again or press Esc to close" : "Click bar to keep open · Esc to close"));
@@ -72,7 +96,12 @@
     });
     document.addEventListener("keydown", function (event) { if (event.key === "Escape") closeTooltip(); });
     root.addEventListener("scroll", function (event) { if (!tooltip.contains(event.target)) closeTooltip(); }, true);
-    root.addEventListener("resize", closeTooltip);
+    root.addEventListener("resize", function () { render(); });
+    let measuredWidth = 0;
+    if (root.ResizeObserver) new root.ResizeObserver(function (entries) {
+      const width = entries[0].contentRect.width;
+      if (Math.abs(width - measuredWidth) > 1) { measuredWidth = width; render(); }
+    }).observe(chart);
     const calendarHost = h("div");
     const editor = root.TimePlanningView.calendarEditor(calendarHost, { start: function () { return start.value; }, onChange: function () { dirty = true; status.textContent = "Unsaved changes"; } });
     const save = h("button", { type: "submit", class: "button mod-primary" }, "Save FTE calendar");
@@ -86,10 +115,11 @@
       try { await handlers.onRefresh(); } catch (e) { error.textContent = e.message; } finally { refresh.disabled = false; }
     } }, "Refresh");
     host.appendChild(h("div", { class: "timeline" }, [
-      h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Full ETA, overruns and shared team capacity")]), refresh]),
-      h("div", { class: "timeline-toolbar" }, [h("label", null, ["Project", project]), h("label", null, ["Forecast from", start]), h("label", null, ["Scale", scale])]),
-      details, error, summary, warnings, chart, tooltip,
-      h("p", { class: "hint timeline-note" }, "Every available ETA adds work to the timeline, including child estimates under an estimated epic. Bars show the full ETA plus any overrun, without subtracting spent time. Child work has priority over the epic's own ETA. Red segments show time over ETA and shift subsequent work using the same FTE calendar and dependencies. Children without an ETA use a parent's estimate when available. Only visible cards in open lists are included.")
+      h("div", { class: "timeline-heading" }, [h("div", null, [h("h1", null, "Timeline"), h("p", { class: "hint" }, "Actual time, remaining work and team capacity")]), refresh]),
+      h("div", { class: "timeline-toolbar" }, [h("div", { class: "timeline-project-field" }, [h("label", null, ["Project", project]), projects]), dateField, h("label", null, ["Scale", scale])]),
+      details, error, summary, warnings,
+      h("div", { class: "timeline-legend" }, [h("span", { class: "legend-spent" }, "Spent · logged dates"), h("span", { class: "legend-remaining" }, "Remaining · forecast")]), chart, tooltip,
+
     ]));
     form.addEventListener("submit", async function (event) {
       event.preventDefault(); if (saving || !writable) return;
@@ -101,41 +131,70 @@
       catch (e) { error.textContent = e.message || "Could not save the FTE calendar."; }
       finally { saving = false; editor.disable(!writable); save.disabled = !writable; reset.disabled = !writable; render(); }
     });
-    [project, start, scale].forEach(function (node) { node.addEventListener("change", function () { selected = project.value; render(); }); });
+    project.addEventListener("change", function () {
+      const match = choices.find(choice => choice.name === project.value);
+      choose(match ? match.id : project.value ? selected : ""); render();
+    });
+    project.addEventListener("focus", function () { project.select(); showProjects(""); });
+    project.addEventListener("click", function () { if (projects.hidden) showProjects(""); });
+    project.addEventListener("input", function () { showProjects(project.value); });
+    project.addEventListener("blur", function () { choose(selected); });
+    project.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); choose(selected); return; }
+      if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault(); if (projects.hidden) showProjects("");
+        if (!matches.length) return;
+        active = (active + (event.key === "ArrowDown" ? 1 : active < 0 ? matches.length : matches.length - 1)) % matches.length;
+        Array.from(projects.children).forEach((node, index) => node.setAttribute("aria-selected", String(index === active)));
+        const option = projects.children[active];
+        project.setAttribute("aria-activedescendant", option.id); option.scrollIntoView({ block: "nearest" });
+      } else if (event.key === "Enter" && !projects.hidden && active >= 0) {
+        event.preventDefault(); choose(matches[active].id); render();
+      }
+    });
+    [start, scale].forEach(function (node) { node.addEventListener("change", function () { if (node === start) customStart = true; render(); }); });
+    const autoStart = h("button", { type: "button", class: "button-link", onclick: function () { customStart = false; render(); } }, "From first time entry");
+    dateField.appendChild(h("label", null, ["Show from", start]));
+    dateField.appendChild(autoStart);
     function render() {
       if (!initialized) return;
       closeTooltip();
-      if (!root.TimeTimeline.validDate(start.value)) { error.textContent = "Pick a valid forecast start date."; summary.textContent = ""; clear(chart); return; }
-      if (error.textContent === "Pick a valid forecast start date.") error.textContent = "";
+      if (!root.TimeTimeline.validDate(start.value)) { error.textContent = "Pick a valid start date."; summary.textContent = ""; clear(chart); return; }
+      if (error.textContent === "Pick a valid start date.") error.textContent = "";
       const allParents = root.TimeTimeline.graph(cards).parents;
       const roots = selected ? [selected] : cards.filter(function (card) { return !allParents.has(card.id); }).map(function (card) { return card.id; });
       // Include cycles even when every card has a parent.
       if (!roots.length && !selected) cards.forEach(function (card) { roots.push(card.id); });
-      const plan = root.TimeTimeline.plan(cards, { start: start.value, rootIds: roots, settings: settings, calendar: calendar });
+      const today = root.TimeDuration.formatYmd(new Date());
+      let plan = root.TimeTimeline.plan(cards, { start: customStart ? start.value : today, today: today, rootIds: roots, settings: settings, calendar: calendar });
+      if (!customStart) {
+        start.value = plan.firstTracked;
+        if (start.value !== today) plan = root.TimeTimeline.plan(cards, { start: start.value, today: today, rootIds: roots, settings: settings, calendar: calendar });
+      }
       const total = plan.tasks.reduce(function (sum, task) { return sum + task.total; }, 0);
       const overrun = plan.tasks.reduce(function (sum, task) { return sum + (task.nativeDone ? 0 : task.overrun); }, 0);
-      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + (overrun ? " to schedule (includes " + root.TimeDuration.formatDuration(overrun, settings) + " over ETA)" : " planned") + " · " + plan.tasks.length + " work items";
+      summary.textContent = (plan.finish ? "Forecast finish " + plan.finish : cards.length ? "Forecast incomplete" : "No cards to plan") + " · " + root.TimeDuration.formatDuration(total, settings) + (overrun ? " remaining (logged " + root.TimeDuration.formatDuration(overrun, settings) + " over ETA)" : " remaining") + " · " + plan.tasks.length + " work items";
       clear(warnings);
       plan.warnings.forEach(function (message) { warnings.appendChild(h("p", { class: "hint" }, message)); });
       clear(chart);
       if (!cards.length) { chart.appendChild(h("p", { class: "empty-state" }, "Add cards and remaining estimates to build a timeline.")); return; }
-      const px = scale.value === "months" ? 7 : 22, width = plan.days.length * px;
+      const labelProbe = h("div", { style: "width:var(--label-width);height:0" });
+      chart.appendChild(labelProbe);
+      const labelWidth = root.getComputedStyle ? labelProbe.getBoundingClientRect().width : 290;
+      labelProbe.remove();
+      const chartWidth = chart.clientWidth || Math.max(320, root.innerWidth - 64);
+      const width = Math.max(1, chartWidth - labelWidth), px = width / plan.days.length;
       const surface = h("div", { class: "timeline-surface", style: "--timeline-width:" + width + "px;--day-width:" + px + "px" });
       function line(label, lane, cls) { return h("div", { class: "timeline-line " + (cls || "") }, [h("div", { class: "timeline-label" }, label), lane]); }
       const axis = h("div", { class: "timeline-axis", style: "width:" + width + "px" });
+      let lastTick = -100;
       plan.days.forEach(function (day, index) {
         const date = new Date(day.date + "T12:00:00Z");
         const show = index === 0 || (scale.value === "months" ? date.getUTCDate() === 1 : date.getUTCDay() === (settings.weekStartsOn === 0 ? 0 : 1));
-        if (show) axis.appendChild(h("span", { style: "left:" + (index * px) + "px" }, date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })));
+        if (show && index * px - lastTick >= 65) { lastTick = index * px; axis.appendChild(h("span", { style: "left:" + (index * px) + "px" }, date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }))); }
       });
       surface.appendChild(line(h("strong", null, "Project / card"), axis, "timeline-axis-row"));
       const maxFte = Math.max(1, ...plan.days.map(function (day) { return day.availableFte; }));
-      const availability = h("div", { class: "timeline-capacity", style: "width:" + width + "px" });
-      plan.days.forEach(function (day) { availability.appendChild(h("button", { type: "button", class: "fte-day" + (!day.workday ? " is-off" : ""),
-        title: day.date + " · " + day.availableFte + " FTE", "aria-label": "Set availability from " + day.date + ", currently " + day.availableFte + " FTE", disabled: !writable || saving,
-        onclick: function () { details.open = true; editor.add(day.date, root.TimeTimeline.capacity(calendar, day.date)); calendarHost.querySelector(".fte-period:last-child input").focus(); status.textContent = "Change the value and save to recalculate."; }
-      }, h("span", { style: "height:" + Math.max(0, day.availableFte / maxFte * 34) + "px" }))); });
-      surface.appendChild(line([h("strong", null, "Team availability"), h("small", { class: "muted" }, maxFte + " FTE max · select a day to change")], availability, "timeline-capacity-row"));
       const displayed = [], seen = new Set();
       function visit(id, depth, path, key) {
         if (path.has(id)) return;
@@ -165,6 +224,7 @@
           "End date: " + (row.finish || "Not scheduled"),
           "ETA: " + (row.estimate != null ? root.TimeDuration.formatDuration(row.estimate, settings) : "Not set"),
           "Spent: " + (row.spent != null ? root.TimeDuration.formatDuration(row.spent, settings) : "Unavailable"),
+          "Remaining: " + root.TimeDuration.formatDuration(row.minutes, settings),
           "Over ETA: " + root.TimeDuration.formatDuration(row.overrun || 0, settings),
           row.status
         ].join("\n");
@@ -177,14 +237,15 @@
           } }, hasKids ? collapsed.has(item.key) ? "▸" : "▾" : "·");
         const label = h("div", { class: "timeline-card-label", style: "padding-left:" + Math.min(item.depth, 8) * 16 + "px" }, [toggle, h("div", { class: "timeline-card-text" }, [
           card && card.url ? h("a", { href: card.url, target: "_blank", rel: "noopener", title: card.name }, card.name) : h("span", null, card ? card.name : "Unavailable card"),
-          !row.start ? h("small", { class: "muted", title: row.status }, row.status) : null
+          h("small", { class: "muted", title: row.status }, root.TimeDuration.formatDuration(row.spent || 0, settings) + " spent · " + root.TimeDuration.formatDuration(row.minutes, settings) + " left" + (!row.complete ? " · " + row.status : ""))
         ])]);
         const lane = h("div", { class: "timeline-lane", style: "width:" + width + "px" });
         if (row.start) {
-          const left = (row.startTime != null ? row.startTime : Math.round((Date.parse(row.start) - Date.parse(start.value)) / 86400000)) * px;
-          const end = (row.finishTime != null ? row.finishTime : Math.round((Date.parse(row.finish || row.scheduledThrough || row.start) - Date.parse(start.value)) / 86400000) + 1) * px;
+          const left = Math.max(0, row.startTime * px);
+          const segmentEnds = row.spentSegments.concat(row.remainingSegments).map(segment => segment.finish * px);
+          const end = Math.min(width, Math.max(left + 1, ...segmentEnds));
           const bar = h("div", { class: "timeline-bar" + (hasKids ? " is-group" : "") + (!row.complete ? " is-partial" : "") + (row.status === "Done" ? " is-done" : "") + (row.overrun ? " is-overrun" : ""),
-            style: "left:" + left + "px;width:" + Math.max(3, end - left - 1) + "px", role: "button", tabindex: "0", "aria-label": barDetails, "aria-expanded": "false",
+            style: "left:" + left + "px;width:" + Math.max(1, end - left) + "px", role: "button", tabindex: "0", "aria-label": barDetails, "aria-expanded": "false",
             onpointerenter: function (event) {
               root.clearTimeout(hideTimer);
               if (pinned) return;
@@ -198,15 +259,17 @@
             onkeydown: function (event) {
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (activeBar === bar && pinned) closeTooltip(); else openTooltip(bar, row, true); }
             }
-          }, h("span", null, root.TimeDuration.formatDuration(row.minutes, settings)));
-          if (!barPositions.has(row.id)) barPositions.set(row.id, { left: left, right: left + Math.max(3, end - left - 1), y: index * 52 + 26 });
-          const spentWidth = row.spentSegments.reduce(function (sum, segment) { return sum + (segment.finish - segment.start) * px; }, 0);
-          if (spentWidth) bar.appendChild(h("div", { class: "timeline-spent", style: "left:0px;width:" + spentWidth + "px" }));
-          if (row.overrunStartTime != null) {
-            const overrunLeft = Math.max(0, row.overrunStartTime * px - left);
-            const overrunEnd = row.overrunFinishTime != null ? row.overrunFinishTime * px : end;
-            bar.appendChild(h("div", { class: "timeline-overrun", style: "left:" + overrunLeft + "px;width:" + Math.max(3, overrunEnd - left - overrunLeft) + "px" }));
+          });
+          if (!barPositions.has(row.id)) barPositions.set(row.id, { left: row.remainingSegments.length ? Math.min(...row.remainingSegments.map(part => part.start)) * px : left, right: end, y: index * 52 + 26 });
+          function segment(parts, cls) {
+            if (!parts.length) return;
+            const x = Math.max(left, Math.min(...parts.map(part => part.start)) * px);
+            const finish = Math.min(width, Math.max(...parts.map(part => part.finish)) * px);
+            if (finish <= x) return;
+            bar.appendChild(h("div", { class: cls, style: "left:" + (x - left) + "px;width:" + (finish - x) + "px" }));
           }
+          segment(row.spentSegments, "timeline-spent");
+          segment(row.remainingSegments, "timeline-remaining");
           lane.appendChild(bar);
         } else lane.appendChild(h("span", { class: "timeline-blocked" }, row.status));
         rowHost.appendChild(line(label, lane, "timeline-work-row"));
@@ -243,15 +306,19 @@
       });
       rowHost.appendChild(svg); surface.appendChild(rowHost);
       const load = h("div", { class: "timeline-load", style: "width:" + width + "px" });
-      plan.days.forEach(function (day) { load.appendChild(h("span", { class: "timeline-load-day", title: day.date + " · " + Number(day.usedFte.toFixed(2)) + " / " + day.availableFte + " FTE" },
-        h("span", { style: "height:" + day.usedFte / maxFte * 28 + "px" }))); });
-      surface.appendChild(line([h("strong", null, "Planned load"), h("small", { class: "muted" }, "Allocated FTE per day")], load, "timeline-load-row"));
-      const today = root.TimeDuration.formatYmd(new Date());
+      plan.days.forEach(function (day) {
+        const title = day.date + " · " + Number(day.usedFte.toFixed(2)) + " / " + day.availableFte + " FTE";
+        load.appendChild(h("button", { type: "button", class: "timeline-load-day", title: title, "aria-label": "Set availability: " + title, disabled: !writable || saving,
+          onclick: function () { details.open = true; editor.add(day.date, root.TimeTimeline.capacity(calendar, day.date)); calendarHost.querySelector(".fte-period:last-child input").focus(); status.textContent = "Change the value and save to recalculate."; }
+        }, h("span", { class: "timeline-load-capacity", style: "height:" + day.availableFte / maxFte * 28 + "px" },
+          h("span", { style: "height:" + (day.availableFte ? day.usedFte / day.availableFte * 100 : 0) + "%" }))));
+      });
+      surface.appendChild(line([h("strong", null, "Team capacity / planned load"), h("small", { class: "muted" }, "Available: background · allocated: fill · select to edit")], load, "timeline-load-row"));
       const todayIndex = plan.days.findIndex(function (day) { return day.date === today; });
-      if (todayIndex >= 0) surface.appendChild(h("div", { class: "timeline-today", style: "left:calc(var(--label-width) + " + (todayIndex + 0.5) * px + "px)", role: "img", "aria-label": "Today: " + today }, h("span", null, "Today")));
+      if (todayIndex >= 0) surface.appendChild(h("div", { class: "timeline-today", style: "left:calc(var(--label-width) + " + plan.boundary * px + "px)", role: "img", "aria-label": "Today: " + today }, h("span", null, "Today")));
       chart.appendChild(surface);
     }
-    return { selectRoot: function (id) { project.value = id; selected = project.value; render(); }, update: function (model) {
+    return { selectRoot: function (id) { choose(id); render(); }, update: function (model) {
       cards = model.cards; settings = model.settings; writable = model.canWrite !== false;
       const nextCalendar = root.TimeTimeline.normalizeCalendar(model.calendar), key = JSON.stringify(nextCalendar);
       if (savedCalendar !== key) {
@@ -259,11 +326,11 @@
         if (dirty) { status.textContent = "Availability changed elsewhere. Your draft is preserved; review it before saving."; }
         else editor.set(calendar);
       }
-      const value = initialized ? project.value : handlers.rootId || "";
-      clear(project); project.appendChild(h("option", { value: "" }, "All projects"));
-      cards.forEach(function (card) { project.appendChild(h("option", { value: card.id }, card.name)); });
-      project.value = cards.some(function (card) { return card.id === value; }) ? value : "";
-      selected = project.value; initialized = true;
+      const value = initialized ? selected : handlers.rootId || "";
+      const counts = new Map();
+      cards.forEach(card => counts.set(card.name, (counts.get(card.name) || 0) + 1));
+      choices = [{ id: "", name: "All projects" }].concat(cards.map(card => ({ id: card.id, name: card.name + (counts.get(card.name) > 1 || card.name === "All projects" ? " · " + card.id : "") })));
+      choose(value); initialized = true;
       editor.disable(!writable || saving); save.disabled = !writable || saving; reset.disabled = !writable || saving;
       error.textContent = model.error || ""; render();
     } };

@@ -5,16 +5,21 @@ const model = require("../js/model");
 const start = "2026-10-26";
 const task = (id, minutes = 480, extra = {}) => ({ id, name: id, entries: [], limitMinutes: minutes, ...extra });
 const group = (id, kids, extra = {}) => task(id, null, { linkedIds: kids, ...extra });
-const plan = (cards, extra = {}) => timeline.plan(cards, { start, calendar: { baseFte: 2 }, ...extra });
+const plan = (cards, extra = {}) => timeline.plan(cards, { start, today: "2026-01-01", calendar: { baseFte: 2 }, ...extra });
 
-test("spent segments follow weekends and FTE changes and roll up into an epic", () => {
-  const p = plan([group("epic", ["a", "b"]), task("a", 1920, { entries: [{ minutes: 960 }] }), task("b", 480)], {
-    start: "2026-10-30", calendar: { baseFte: 1, changes: [{ date: "2026-11-02", fte: 2 }] }
+test("actuals keep logged dates and remaining work starts at today with no future actuals", () => {
+  const p = plan([group("epic", ["a", "b"]), task("a", 1920, { entries: [{ ymd: 20261023, minutes: 480 }, { ymd: 20261026, minutes: 480 }] }), task("b", 480)], {
+    start: "2026-10-23", today: "2026-10-26", calendar: { baseFte: 1 }
   });
-  assert.deepEqual(p.rows.get("a").spentSegments, [{ start: 0, finish: 3.5 }]);
-  assert.deepEqual(p.rows.get("epic").spentSegments, [{ start: 0, finish: 3.5 }]);
-  assert.deepEqual(p.rows.get("b").spentSegments, []);
-  assert.ok(p.rows.get("epic").finishTime > 3.5, "the unspent part stays scheduled");
+  const row = p.rows.get("a");
+  assert.deepEqual(row.spentSegments.map(s => [s.date, s.minutes]), [["2026-10-23", 480], ["2026-10-26", 480]]);
+  assert.deepEqual(p.rows.get("epic").spentSegments, row.spentSegments);
+  assert.ok(row.spentSegments.every(s => s.finish <= p.boundary));
+  assert.ok(row.remainingSegments.every(s => s.start >= p.boundary));
+  assert.equal(row.minutes, 960);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
+  assert.equal(p.days[0].minutes, 0);
+  assert.equal(p.firstTracked, "2026-10-23");
 });
 
 test("epic predecessors gate all descendants, including deeply nested tasks", () => {
@@ -120,11 +125,11 @@ test("epic and nested phase ETAs all contribute to the shared schedule", () => {
     task("a", null, { entries: [{ minutes: 120 }] }), task("b", null), task("phase1", 480)];
   const p = plan(cards, { rootIds: ["epic"], calendar: { baseFte: 1 } });
   assert.equal(p.tasks.length, 3);
-  assert.equal(p.rows.get("phase0").minutes, 960, "logged child work does not shrink the full phase ETA");
+  assert.equal(p.rows.get("phase0").minutes, 840);
   assert.ok(p.rows.get("phase0").finish);
-  assert.equal(p.rows.get("epic").minutes, 4320, "the epic includes its full ETA and all child estimates");
+  assert.equal(p.rows.get("epic").minutes, 4200);
   assert.equal(p.finish, "2026-11-05");
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 4320);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 4200);
   assert.deepEqual(p.warnings, []);
 });
 
@@ -179,28 +184,17 @@ test("estimated children keep their own dependencies under an estimated parent",
   assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 1440);
 });
 
-test("a seven-day phase shows its full ETA plus overrun beneath an estimated epic", () => {
-  const p = plan([
-    group("epic", ["phase0", "phase1"], { limitMinutes: 11520 }),
-    group("phase0", ["a", "b"], { limitMinutes: 3360 }),
-    task("a", null, { entries: [{ minutes: 3493 }] }),
-    task("b", null, { entries: [{ minutes: 120 }] }),
-    task("phase1", null, { dependencyIds: ["phase0"] })
-  ], { calendar: { baseFte: 1 } });
-  const epic = p.tasks.find(item => item.id === "epic");
-  const phase = p.tasks.find(item => item.id === "phase0");
-  assert.equal(epic.total, 11520);
-  assert.equal(phase.total, 3613, "seven full workdays plus 4h 13m of overrun");
-  assert.equal(phase.overrun, 253);
-  assert.equal(phase.startTime, 0);
-  assert.equal(phase.overrunStartTime, 9, "seven workdays occupy nine calendar days");
-  assert.equal(phase.finishTime, 9 + 253 / 480);
-  assert.equal(epic.startTime, phase.finishTime);
-  assert.equal(p.rows.get("phase0").overrunStartTime, 9);
-  assert.equal(p.rows.get("phase0").finish, "2026-11-04");
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 15133);
-  assert.equal(p.complete, true);
-  assert.equal(p.finish, "2026-12-08");
+test("an exhausted phase keeps historical overrun and blocks its successors until clarified", () => {
+  const p = plan([group("epic", ["phase"], { limitMinutes: 11520 }),
+    group("phase", ["a"], { limitMinutes: 3360 }), task("a", null, { entries: [{ ymd: 20261020, minutes: 3613 }] }),
+    task("after", 480, { dependencyIds: ["phase"] })], { today: "2026-10-26", calendar: { baseFte: 1 } });
+  assert.equal(p.rows.get("phase").overrun, 253);
+  assert.equal(p.rows.get("phase").minutes, 0);
+  assert.equal(p.rows.get("phase").finish, null);
+  assert.match(p.rows.get("phase").status, /ETA exhausted/);
+  assert.equal(p.rows.get("after").start, null);
+  assert.equal(p.tasks.find(t => t.id === "epic").total, 11520, "parent's independent ETA does not subtract child logs again");
+  assert.equal(p.complete, false);
 });
 
 test("missing estimates and unavailable dependencies cannot imply completion", () => {
@@ -217,46 +211,33 @@ test("missing estimates and unavailable dependencies cannot imply completion", (
   assert.equal(external.rows.get("gone").status, "Unavailable");
 });
 
-test("overrun shifts dependent work by exact working minutes, including weekends and FTE caps", () => {
-  const cards = [task("first", 240, { entries: [{ minutes: 253 }] }),
-    task("after", 480, { dependencyIds: ["first"] })];
-  for (const baseFte of [1, 0.5]) {
-    const p = plan(cards, { start: "2026-10-30", calendar: { baseFte } });
-    const after = p.tasks.find(item => item.id === "after");
-    assert.equal(after.startTime, baseFte === 1 ? 253 / 480 : 3 + 13 / 240);
-    assert.equal(p.rows.get("first").overrunStartTime, baseFte === 1 ? 0.5 : 1);
-    assert.equal(p.rows.get("first").overrun, 13);
-    assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 733);
-    assert.equal(p.finish, baseFte === 1 ? "2026-11-02" : "2026-11-04");
-    assert.ok(p.days.filter(day => !day.workday).every(day => day.minutes === 0));
-  }
+test("only remaining minutes consume future capacity and release dependencies within the day", () => {
+  const p = plan([task("first", 480, { entries: [{ ymd: 20261022, minutes: 360 }] }), task("after", 480, { dependencyIds: ["first"] })], { today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(p.tasks.find(t => t.id === "after").startTime, 0.25);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 600);
 });
 
-test("an ETA exactly consumed retains its full scheduled duration", () => {
-  const p = plan([task("before", 480), task("exact", 240, { entries: [{ minutes: 240 }], dependencyIds: ["before"] }),
-    task("after", 480, { dependencyIds: ["exact"] })], { calendar: { baseFte: 1 } });
-  const exact = p.tasks.find(item => item.id === "exact");
-  const after = p.tasks.find(item => item.id === "after");
-  assert.equal(exact.total, 240);
-  assert.equal(exact.startTime, 1);
-  assert.equal(exact.finishTime, 1.5);
-  assert.equal(exact.nativeDone, false, "the forecast does not change Trello completion");
-  assert.equal(p.rows.get("exact").start, "2026-10-27");
-  assert.equal(after.startTime, 1.5);
+test("an ETA exactly consumed needs Done or an increased estimate", () => {
+  const cards = [task("exact", 240, { entries: [{ ymd: 20261020, minutes: 240 }] }), task("after", 480, { dependencyIds: ["exact"] })];
+  let p = plan(cards, { today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(p.complete, false);
+  assert.equal(p.rows.get("after").start, null);
+  cards[0].dueComplete = true;
+  p = plan(cards, { today: "2026-10-25", calendar: { baseFte: 1 } });
   assert.equal(p.complete, true);
-  assert.equal(p.finish, "2026-10-28");
+  assert.equal(p.rows.get("after").start, start);
+  assert.equal(p.rows.get("exact").finish, "2026-10-20");
 });
 
-test("native completion skips work while logs do not shorten the full ETA", () => {
-  const cards = [task("a", null, { dueComplete: true }), task("b", 840, { entries: [{ minutes: 600 }], planning: { remainingMinutes: 1 }, dependencyIds: ["a"] })];
-  const p = plan(cards, { calendar: { baseFte: 1 } });
-  assert.equal(p.finish, "2026-10-27");
-  assert.equal(p.days[0].minutes, 480);
-  assert.equal(p.rows.get("b").minutes, 840);
-  assert.equal(p.rows.get("a").status, "Done");
-  cards[1].entries.push({ minutes: 60 });
-  assert.equal(plan(cards).rows.get("b").minutes, 840, "logging time does not subtract from the full ETA");
-  assert.equal(model.decode({ e: [], p: { remainingMinutes: 120 } }).planning, null, "the removed override is ignored");
+test("native completion skips work and logging time reduces the forecast", () => {
+  const cards = [task("a", null, { dueComplete: true }), task("b", 840, { entries: [{ ymd: 20261020, minutes: 600 }], dependencyIds: ["a"] })];
+  let p = plan(cards, { today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(p.finish, start);
+  assert.equal(p.days[0].minutes, 240);
+  assert.equal(p.rows.get("b").minutes, 240);
+  cards[1].entries.push({ ymd: 20261021, minutes: 60 });
+  assert.equal(plan(cards, { today: "2026-10-25" }).rows.get("b").minutes, 180);
+  assert.equal(model.decode({ e: [], p: { remainingMinutes: 120 } }).planning, null);
 });
 
 test("root selection includes external prerequisites and inherits restrictions from ancestors", () => {
@@ -331,4 +312,22 @@ test("Trello Done is the completion source; legacy planning flags cannot complet
   assert.equal(model.decode({ e: [], p: { done: true } }).planning, null);
   const epic = plan([group("root", ["a"], { dueComplete: true }), task("a")], { rootIds: ["root"] });
   assert.equal(epic.rows.get("root").status, "Scheduled", "an epic mark does not complete unfinished children");
+});
+
+test("future-dated entries cannot become actuals or reduce remaining work", () => {
+  const p = plan([task("a", 480, { entries: [{ ymd: 20261027, minutes: 480 }] })], { today: "2026-10-26" });
+  assert.equal(p.rows.get("a").spent, 0);
+  assert.deepEqual(p.rows.get("a").spentSegments, []);
+  assert.equal(p.rows.get("a").minutes, 480);
+  assert.match(p.warnings.join(" "), /Future-dated/);
+});
+
+test("shared historical work rolls up once, including completed external prerequisites", () => {
+  const p = plan([group("root", ["x", "y"]), group("x", ["shared"]), group("y", ["shared"]),
+    task("shared", 480, { entries: [{ ymd: 20261020, minutes: 120 }], dependencyIds: ["before"] }),
+    task("before", 480, { dueComplete: true, entries: [{ ymd: 20261019, minutes: 480 }] })], { rootIds: ["root"], today: "2026-10-26" });
+  assert.equal(p.firstTracked, "2026-10-19");
+  assert.equal(p.rows.get("root").spent, 120);
+  assert.equal(p.rows.get("root").minutes, 360);
+  assert.equal(p.rows.get("before").spent, 480);
 });

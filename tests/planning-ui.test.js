@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 const { createDom } = require("./helpers/dom");
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const cards = [
@@ -7,7 +8,7 @@ const cards = [
   { id: "a", name: "Foundation", limitMinutes: 480, entries: [] },
   { id: "b", name: "Rollout", limitMinutes: 480, dependencyIds: ["a"], entries: [] }
 ];
-function ui() { const dom = createDom(); dom.run("planning-view.js"); dom.run("timeline-view.js"); return dom; }
+function ui() { const dom = createDom(); vm.runInContext('Date = class extends Date { constructor(...args) { super(...(args.length ? args : ["2026-10-26T12:00:00Z"])); } }', dom.context); dom.run("planning-view.js"); dom.run("timeline-view.js"); return dom; }
 
 test("timeline renders computed dates, dependencies, calendar edits and collapse without duplicating work", async () => {
   const d = ui(), host = d.host(); let saved;
@@ -28,7 +29,7 @@ test("timeline renders computed dates, dependencies, calendar edits and collapse
   await host.querySelector("form").fire("submit");
   assert.equal(saved.baseFte, 0.5);
   assert.match(host.querySelector(".timeline-summary").textContent, /2026-10-29/);
-  await host.querySelector(".fte-day").fire("click");
+  await host.querySelector(".timeline-load-day").fire("click");
   assert.equal(host.querySelectorAll(".fte-period").length, 1, "date on chart creates a calendar period");
   const period = host.querySelector(".fte-period");
   period.querySelector('[aria-label="FTE effective from"]').value = "2026-10-27";
@@ -42,8 +43,8 @@ test("calendar rejects duplicate dates and failed saves retain editable values",
   const d = ui(), host = d.host(); let writes = 0;
   const view = d.window.TimeTimelineView.mount(host, { start: "2026-10-26", onRefresh: async () => {}, onCalendar: async () => { writes++; throw new Error("offline"); } });
   view.update({ cards, settings: {}, calendar: { baseFte: 1 }, canWrite: true });
-  await host.querySelector(".fte-day").fire("click");
-  await host.querySelector(".fte-day").fire("click");
+  await host.querySelector(".timeline-load-day").fire("click");
+  await host.querySelector(".timeline-load-day").fire("click");
   await host.querySelector("form").fire("submit");
   assert.equal(writes, 0);
   assert.match(host.querySelector('[role="alert"]').textContent, /one FTE change/);
@@ -60,7 +61,7 @@ test("read-only timeline permits changing the view but disables all calendar wri
   const view = d.window.TimeTimelineView.mount(host, { start: "2026-10-26", onRefresh: async () => {}, onCalendar: async () => { writes++; } });
   view.update({ cards, settings: {}, calendar: null, canWrite: false });
   assert.equal(host.querySelector('[aria-label="Default FTE"]').disabled, true);
-  assert.equal(host.querySelector(".fte-day").disabled, true);
+  assert.equal(host.querySelector(".timeline-load-day").disabled, true);
   assert.equal(host.querySelector('[aria-label="Project"]').disabled, false);
   await host.querySelector("form").fire("submit");
   assert.equal(writes, 0);
@@ -72,16 +73,18 @@ test("dependency autocomplete carries IDs, keyboard selection works and planning
     onCardSearch: async () => [{ id: "duplicate-name-id", name: "Foundation" }], onDependencyAdd: async (text, id) => { added = id; }, onDependencyRemove: async () => {}, onPlanning: async (value, minutes) => { planning = value; estimateMinutes = minutes; } });
   const model = { cardId: "task", settings: {}, limitMinutes: 480, dependencies: [], planning: null, canWrite: true };
   view.update(model);
-  const add = host.querySelectorAll("button").find(node => node.textContent === "+ add dependency");
+  const add = host.querySelector('[aria-label="Add dependency"]');
   const form = host.querySelector(".dependency-form");
   assert.equal(form.hidden, true, "dependency input and actions are hidden initially");
+  assert.equal(add.parentNode.className, "planning-heading-label");
+  assert.doesNotMatch(host.textContent, /No direct dependencies|add dependency/);
   assert.equal(add.hidden, false);
   assert.equal(add.getAttribute("aria-expanded"), "false");
   assert.equal(host.querySelector('[type="checkbox"]'), null, "completion is managed in Trello");
   assert.doesNotMatch(host.textContent, /Completed/);
   await add.fire("click");
   assert.equal(form.hidden, false);
-  assert.equal(add.hidden, true);
+  assert.equal(add.hidden, false, "the header keeps its plus button and height while the form is open");
   assert.equal(add.getAttribute("aria-expanded"), "true");
   view.update({ ...model, saving: true });
   assert.equal(form.hidden, false, "saving state does not open or close the picker");
@@ -213,7 +216,7 @@ test("stale dependency searches cannot replace the selected card identity", asyn
     onCardSearch: query => query === "old" ? old : Promise.resolve([{ id: "new", name: "Same title" }]),
     onDependencyAdd: async (text, id) => { added = id; }, onDependencyRemove: async () => {}, onPlanning: async () => {} });
   view.update({ cardId: "task", settings: {}, dependencies: [], canWrite: true });
-  await host.querySelectorAll("button").find(node => node.textContent === "+ add dependency").fire("click");
+  await host.querySelector('[aria-label="Add dependency"]').fire("click");
   const input = host.querySelector('[role="combobox"]');
   input.value = "old"; const searching = input.fire("input");
   input.value = "new"; await input.fire("input");
@@ -222,4 +225,33 @@ test("stale dependency searches cannot replace the selected card identity", asyn
   await input.fire("keydown", { key: "Enter" });
   await host.querySelector(".dependency-form").fire("submit"); await tick();
   assert.equal(added, "new");
+});
+
+test("project autocomplete selects cards by name, disambiguates duplicates and preserves IDs across renames", async () => {
+  const d = ui(), host = d.host();
+  const view = d.window.TimeTimelineView.mount(host, { rootId: "a", onRefresh: async () => {}, onCalendar: async () => {} });
+  const model = { cards: [{ id: "a", name: "Same", entries: [], limitMinutes: 480 }, { id: "b", name: "Same", entries: [], limitMinutes: 960 }], settings: {}, calendar: { baseFte: 1 } };
+  view.update(model);
+  const input = host.querySelector('[aria-label="Project"]');
+  assert.equal(input.tagName, "input");
+  await input.fire("focus");
+  const dropdown = host.querySelector(".timeline-project-options");
+  assert.equal(input.getAttribute("aria-controls"), dropdown.id);
+  const values = dropdown.children.map(option => option.textContent);
+  assert.equal(new Set(values).size, 3);
+  input.value = "Same · b"; await input.fire("input");
+  await input.fire("keydown", { key: "ArrowDown" });
+  await input.fire("keydown", { key: "Enter" });
+  assert.equal(dropdown.hidden, true);
+  assert.match(host.querySelector(".timeline-summary").textContent, /2d remaining/);
+  model.cards[1].name = "Renamed";
+  view.update(model);
+  assert.equal(input.value, "Renamed");
+  input.value = "unmatched search"; await input.fire("change");
+  assert.equal(input.value, "Renamed", "unmatched text does not accidentally switch the project");
+  input.value = ""; await input.fire("change");
+  assert.equal(input.value, "All projects");
+  assert.match(host.querySelector(".timeline-summary").textContent, /3d remaining/);
+  view.selectRoot("a");
+  assert.equal(input.value, "Same");
 });

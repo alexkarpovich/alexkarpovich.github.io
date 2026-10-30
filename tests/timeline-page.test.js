@@ -4,7 +4,9 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const { createDom } = require("./helpers/dom");
 function harness(options = {}) {
-  const d = createDom(), host = d.host(); host.id = "app";
+  const d = createDom();
+  vm.runInContext('Date = class extends Date { constructor(...args) { super(...(args.length ? args : ["2026-10-26T12:00:00Z"])); } }', d.context);
+  const host = d.host(); host.id = "app";
   let render, writes = 0, fail = false, dueComplete = false, reportLoads = 0, timelineLoads = 0;
   let shared = options.shared || { unrelated: "preserved" };
   const client = {
@@ -24,11 +26,11 @@ function harness(options = {}) {
 test("combined board page opens Timeline from a card, writes the calendar and preserves other shared keys", async () => {
   const h = harness(); await h.render();
   assert.match(h.host.textContent, /Timeline/);
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d planned/,
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1d remaining/,
     "one card with ETA and no time entries gets a scheduled finish");
   const bar = h.host.querySelector(".timeline-bar");
   assert.ok(bar, "the minimum case draws a bar");
-  assert.match(bar.getAttribute("aria-label"), /\nETA: 1d\nSpent: 0m\nOver ETA: 0m\nScheduled$/);
+  assert.match(bar.getAttribute("aria-label"), /\nETA: 1d\nSpent: 0m\nRemaining: 1d\nOver ETA: 0m\nScheduled$/);
   assert.equal(bar.getAttribute("title"), null, "use the styled tooltip instead of the browser title");
   h.host.querySelector('[aria-label="Default FTE"]').value = "0.5";
   await h.host.querySelector("form").fire("submit");
@@ -40,29 +42,27 @@ test("a group with one estimated child renders dates from the child without a gr
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "task", name: "Task" }],
     timeById: { epic: { e: [], lc: ["task"] }, task: { e: [], lim: 240 } } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h planned/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*4h remaining/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "child and grouping epic both appear on the timeline");
 });
-test("epic bars show only logged progress and today's marker follows the scale and visible dates", async () => {
+test("timeline starts at first logged date and keeps actuals before Today across scales", async () => {
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "task", name: "Task" }],
     timeById: { epic: { e: [], lc: ["task"] }, task: { e: [["entry", 20261020, 240, 0]], lim: 960 } } });
   await h.render();
-  const start = h.host.querySelector('[aria-label="Forecast start"]');
-  const today = h.window.TimeDuration.formatYmd(new Date());
-  start.value = "2026-10-26"; await start.fire("change");
-  const epic = h.host.querySelector(".is-group");
-  assert.equal(epic.querySelector(".timeline-spent").getAttribute("style"), "left:0px;width:11px");
-  assert.ok(Number(/width:([\d.]+)px/.exec(epic.getAttribute("style"))[1]) > 11);
-  start.value = today; await start.fire("change");
-  let marker = h.host.querySelector(".timeline-today");
-  assert.equal(marker.getAttribute("aria-label"), "Today: " + today);
-  assert.equal(marker.getAttribute("style"), "left:calc(var(--label-width) + 11px)");
-  const scale = h.host.querySelector('[aria-label="Timeline scale"]'); scale.value = "months"; await scale.fire("change");
-  marker = h.host.querySelector(".timeline-today");
-  assert.equal(marker.getAttribute("style"), "left:calc(var(--label-width) + 3.5px)");
+  const start = h.host.querySelector('[aria-label="Timeline start"]');
+  assert.equal(start.value, "2026-10-20");
+  const position = (node, key) => Number(new RegExp(key + ":([\\d.]+)px").exec(node.getAttribute("style"))[1]);
+  for (const value of ["weeks", "months"]) {
+    const scale = h.host.querySelector('[aria-label="Timeline scale"]'); scale.value = value; await scale.fire("change");
+    const epic = h.host.querySelector(".is-group"), spent = epic.querySelector(".timeline-spent"), remaining = epic.querySelector(".timeline-remaining");
+    assert.ok(position(spent, "left") + position(spent, "width") < position(remaining, "left"));
+    assert.equal(h.host.querySelector(".timeline-today").getAttribute("aria-label"), "Today: 2026-10-26");
+  }
   start.value = "2999-01-01"; await start.fire("change");
-  assert.equal(h.host.querySelector(".timeline-today"), null, "today is outside the visible range");
+  assert.equal(h.host.querySelector(".timeline-today"), null);
+  assert.equal(h.host.querySelector(".timeline-spent"), null, "hidden history is clipped to the selected range");
 });
+
 test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async () => {
   const h = harness({ rootId: "epic", cards: [
     { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
@@ -73,55 +73,38 @@ test("Epic and Phase 0 ETA both draw bars even when Phase 1 has no ETA", async (
     task1: { e: [] }, task2: { e: [] }, phase1: { e: [] }
   } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w 2d planned.*2 work items/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*1w 2d remaining.*2 work items/);
   assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2, "Epic and Phase 0 have dated bars");
   assert.match(h.host.textContent, /Included in EPIC ETA/);
-  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
+  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
 });
-test("epic progress combines separated logged intervals into a single leading grey segment", async () => {
+test("epic draws continuous actual and remaining periods without changing logged totals", async () => {
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "A" }, { id: "b", name: "B" }],
-    timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [["a1", 20261020, 240, 0]], lim: 480 }, b: { e: [["b1", 20261020, 240, 0]], lim: 480 } } });
+    timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [["a1", 20261020, 240, 0]], lim: 480 }, b: { e: [["b1", 20261022, 240, 0]], lim: 480 } } });
   await h.render();
-  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
   const epic = h.host.querySelector(".is-group");
   assert.equal(epic.querySelectorAll(".timeline-spent").length, 1);
-  assert.equal(epic.querySelector(".timeline-spent").getAttribute("style"), "left:0px;width:22px");
-  assert.equal(epic.getAttribute("style"), "left:0px;width:43px");
+  assert.equal(epic.querySelectorAll(".timeline-remaining").length, 1);
+  const dayWidth = Number(/--day-width:([\d.]+)px/.exec(h.host.querySelector(".timeline-surface").getAttribute("style"))[1]);
+  const spentWidth = Number(/width:([\d.]+)px/.exec(epic.querySelector(".timeline-spent").getAttribute("style"))[1]);
+  assert.ok(Math.abs(spentWidth - 3 * dayWidth) < 0.001, "historical period spans October 20–22 as one segment");
+  assert.match(h.host.querySelector(".timeline-card-text").textContent, /1d spent · 1d left/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /1d remaining/);
 });
-test("an over-limit phase and epic both draw bars with visible overrun and planned load", async () => {
-  const h = harness({ rootId: "epic", cards: [
-    { id: "epic", name: "EPIC" }, { id: "phase0", name: "Phase 0" },
-    { id: "a", name: "Task 1" }, { id: "b", name: "Task 2" }, { id: "phase1", name: "Phase 1" }
-  ], timeById: {
-    epic: { e: [], lim: 11520, lc: ["phase0", "phase1"] },
-    phase0: { e: [], lim: 3360, lc: ["a", "b"] },
-    a: { e: [["a1", 20261021, 3493, 0]] }, b: { e: [["b1", 20261020, 120, 0]] },
-    phase1: { e: [], dep: ["phase0"] }
-  } });
+
+test("an over-limit phase displays actuals and requires an estimate update without inventing future overrun", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "EPIC" }, { id: "phase", name: "Phase" }, { id: "a", name: "A" }],
+    timeById: { epic: { e: [], lc: ["phase"] }, phase: { e: [], lim: 3360, lc: ["a"] }, a: { e: [["a1", 20261021, 3613, 0]] } } });
   await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast finish.*includes 4h 13m over ETA/);
-  assert.equal(h.host.querySelectorAll(".timeline-bar").length, 2);
-  const overrunBar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.className.split(" ").includes("is-overrun"));
-  assert.ok(overrunBar);
-  const tooltip = overrunBar.getAttribute("aria-label");
-  assert.match(tooltip, /^Phase 0\nStart date: \d{4}-\d{2}-\d{2}\nEnd date: \d{4}-\d{2}-\d{2}\nETA: 1w 2d\nSpent: 1w 2d 4h 13m\nOver ETA: 4h 13m\nScheduled$/);
-  await overrunBar.fire("click");
-  const popup = h.host.querySelector(".timeline-tooltip");
-  assert.equal(popup.hidden, false);
-  assert.equal(popup.querySelector("h3").textContent, "Phase 0");
-  assert.equal(popup.querySelector(".is-over dd").textContent, "4h 13m");
-  const labels = h.host.querySelectorAll(".timeline-card-text");
-  assert.equal(labels[0].textContent, "EPIC");
-  assert.equal(labels[1].textContent, "Phase 0");
-  assert.doesNotMatch(labels[1].textContent, /ETA|Spent|\d{4}-\d{2}-\d{2}/);
-  const style = overrunBar.getAttribute("style");
-  assert.ok(Number(/width:([\d.]+)px/.exec(style)[1]) > 9 * 22, "the phase bar includes seven workdays and its overrun");
-  const segment = overrunBar.querySelector(".timeline-overrun");
-  assert.ok(segment, "only the trailing overrun segment is red");
-  assert.equal(segment.getAttribute("title"), null, "the red segment inherits the full bar tooltip");
-  assert.equal(Number(/left:([\d.]+)px/.exec(segment.getAttribute("style"))[1]), 9 * 22);
-  assert.doesNotMatch(h.host.textContent, /ETA exhausted|no reliable finish/);
-  assert.ok(h.host.querySelectorAll(".timeline-load-day").some(day => / · 1 \/ 1 FTE/.test(day.getAttribute("title"))));
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /Forecast incomplete.*0m remaining.*4h 13m over ETA/);
+  const bar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.getAttribute("aria-label").startsWith("Phase\n"));
+  assert.ok(bar.querySelector(".timeline-spent"));
+  assert.equal(bar.querySelector(".timeline-remaining"), null);
+  assert.match(bar.getAttribute("aria-label"), /ETA exhausted/);
+  await bar.fire("click");
+  assert.equal(h.host.querySelector(".timeline-tooltip .is-over dd").textContent, "4h 13m");
+  assert.equal(h.host.querySelectorAll(".timeline-capacity-row").length, 0);
+  assert.equal(h.host.querySelectorAll(".timeline-load-row").length, 1);
 });
 
 test("board tabs load each view on demand and retain the report when switching back", async () => {
@@ -157,7 +140,7 @@ test("board calendar storage preflight and concurrent changes reject writes with
 test("saving and reloading a dated team FTE increase updates bar dates and load for work in progress", async () => {
   const h = harness({ cards: [{ id: "task", name: "Phase 1" }], timeById: { task: { e: [], lim: 5520 } } });
   await h.render();
-  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-11-05"; await start.fire("change");
+  const start = h.host.querySelector('[aria-label="Timeline start"]'); start.value = "2026-11-05"; await start.fire("change");
   assert.match(h.host.querySelector(".timeline-bar").getAttribute("aria-label"), /Start date: 2026-11-05\nEnd date: 2026-11-20/);
   const add = h.host.querySelectorAll("button").find(button => button.textContent === "+ add FTE change");
   await add.fire("click");
@@ -182,13 +165,13 @@ test("timeline page recovers after a failed initial load and read-only viewers c
   assert.equal(h.writes(), 0);
 });
 
-test("timeline refresh reads native Trello Done and reopening returns planned work to the plan", async () => {
+test("timeline refresh reads native Trello Done and reopening returns remaining work to the plan", async () => {
   const h = harness(); h.setDone(true); await h.render();
-  assert.match(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
   assert.match(h.host.querySelector(".timeline-card-text").textContent, /Work/);
   assert.ok(h.host.querySelector(".is-done"));
   h.setDone(false); await h.render();
-  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m planned/);
+  assert.doesNotMatch(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
   assert.equal(h.host.querySelector(".is-done"), null);
 });
 
@@ -264,7 +247,7 @@ test("dependency connectors use actual bar edges and approach successors with ro
     const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "A" }, { id: "b", name: "B" }],
       timeById: { epic: { e: [], lc: children }, a: { e: [], lim: 480 }, b: { e: [], lim: 480, dep: ["a"] } } });
     await h.render();
-    const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
+    const start = h.host.querySelector('[aria-label="Timeline start"]'); start.value = "2026-10-26"; await start.fire("change");
     for (const scale of ["weeks", "months"]) {
       const select = h.host.querySelector('[aria-label="Timeline scale"]'); select.value = scale; await select.fire("change");
       const bars = h.host.querySelectorAll(".timeline-bar");
@@ -290,7 +273,47 @@ test("dependencies from completed work enter a first-day successor vertically wi
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "Done", dueComplete: true }, { id: "b", name: "Next" }],
     timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [], lim: 480 }, b: { e: [], lim: 480, dep: ["a"] } } });
   await h.render();
-  const start = h.host.querySelector('[aria-label="Forecast start"]'); start.value = "2026-10-26"; await start.fire("change");
+  const start = h.host.querySelector('[aria-label="Timeline start"]'); start.value = "2026-10-27"; await start.fire("change");
   assert.ok(h.host.querySelector('[data-predecessor="a"]').getAttribute("d").endsWith("L8 119"));
   assert.equal(h.host.querySelector(".timeline-dependency-arrow").getAttribute("d"), "M5 115 L8 119 L11 115");
+});
+
+test("automatic start includes external prerequisite history and a manual date survives refresh", async () => {
+  const h = harness({ rootId: "task", cards: [{ id: "task", name: "Work" }, { id: "before", name: "Before", dueComplete: true }],
+    timeById: { task: { e: [["a", 20261023, 120, 0]], lim: 480, dep: ["before"] }, before: { e: [["b", 20261019, 480, 0]], lim: 480 } } });
+  await h.render();
+  const start = h.host.querySelector('[aria-label="Timeline start"]');
+  assert.equal(start.value, "2026-10-19");
+  start.value = "2026-10-22"; await start.fire("change");
+  await h.render();
+  assert.equal(start.value, "2026-10-22");
+  await h.host.querySelectorAll("button").find(button => button.textContent === "From first time entry").fire("click");
+  assert.equal(start.value, "2026-10-19");
+});
+
+test("dependency arrows enter remaining work rather than a successor's historical logs", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Epic" }, { id: "a", name: "A" }, { id: "b", name: "B" }],
+    timeById: { epic: { e: [], lc: ["a", "b"] }, a: { e: [], lim: 480 }, b: { e: [["b1", 20261020, 120, 0]], lim: 480, dep: ["a"] } } });
+  await h.render();
+  const bar = h.host.querySelectorAll(".timeline-bar").find(bar => bar.getAttribute("aria-label").startsWith("B\n"));
+  const value = (element, key) => Number(new RegExp(key + ":([\\d.]+)px").exec(element.getAttribute("style"))[1]);
+  const target = value(bar, "left") + value(bar.querySelector(".timeline-remaining"), "left") - 2;
+  assert.ok(h.host.querySelector('[data-predecessor="a"]').getAttribute("d").endsWith("L" + target + " 130"));
+});
+
+test("opening from a card keeps its ID selected and includes descendants and prerequisites after refresh", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "Same" }, { id: "other", name: "Same" }, { id: "child", name: "Child" }, { id: "before", name: "Before" }],
+    timeById: { epic: { e: [], lc: ["child"], dep: ["before"] }, other: { e: [], lim: 9600 }, child: { e: [], lim: 480 }, before: { e: [], lim: 480 } } });
+  await h.render();
+  const project = h.host.querySelector('[aria-label="Project"]');
+  assert.equal(project.value, "Same · epic");
+  assert.equal(h.host.querySelectorAll(".timeline-work-row").length, 3);
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /2d remaining/);
+  await project.fire("focus");
+  project.value = "other"; await project.fire("input");
+  await project.fire("keydown", { key: "Escape" });
+  assert.equal(project.value, "Same · epic");
+  await h.render();
+  assert.equal(project.value, "Same · epic");
+  assert.equal(h.host.querySelectorAll(".timeline-work-row").length, 3);
 });

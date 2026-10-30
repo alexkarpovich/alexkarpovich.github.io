@@ -73,8 +73,8 @@
   [
     { id: "project", name: "Project Epic · Platform migration", kids: ["phase1", "phase2"] },
     { id: "phase1", name: "Epic 1 · Foundation", kids: ["task-a", "task-b"], planning: { maxFte: 1.4 } },
-    { id: "task-a", name: "Task A · Data model", limitMinutes: 2400 },
-    { id: "task-b", name: "Task B · API integration", limitMinutes: 3360 },
+    { id: "task-a", name: "Task A · Data model", limitMinutes: 2400, entries: [entry("ta1", 20261026, 480, "anna", "Анна Ковалева"), entry("ta2", 20261027, 240, "anna", "Анна Ковалева")] },
+    { id: "task-b", name: "Task B · API integration", limitMinutes: 3360, entries: [entry("tb1", 20261028, 360, "boris", "Борис Левин")] },
     { id: "phase2", name: "Epic 2 · Rollout", kids: ["task-c", "sub-epic"], dependencyIds: ["phase1"] },
     { id: "task-c", name: "Task C · Migrate services", limitMinutes: 2880 },
     { id: "sub-epic", name: "Sub-epic · Validation", kids: ["task-d"] },
@@ -200,7 +200,7 @@
   });
 
   timelineView = window.TimeTimelineView.mount(document.getElementById("timeline-app"), {
-    start: "2026-10-26", rootId: "project", onRefresh: function () { paintTimeline(); return Promise.resolve(); },
+    rootId: "project", onRefresh: function () { paintTimeline(); return Promise.resolve(); },
     onCalendar: function (value) { fteCalendar = value; return Promise.resolve(); }
   });
   function paintTimeline() { if (timelineView) timelineView.update({ cards: cards, settings: settings, calendar: fteCalendar, canWrite: true }); }
