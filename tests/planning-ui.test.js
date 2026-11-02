@@ -186,20 +186,22 @@ test("failed planning saves keep the editor and its draft, while Cancel restores
   assert.equal(host.querySelector(".planning-form").hidden, true);
 });
 
-test("the complete preview boots with the real HTML script order and exposes the handoff example", () => {
+test("the complete preview boots with the real HTML script order and exposes the handoff example", async () => {
   const fs = require("node:fs");
   const vm = require("node:vm");
   const d = createDom();
   d.context.location = { search: "" };
-  for (const id of ["card-picker", "card-app", "report-app", "timeline-app"]) {
-    const node = d.document.createElement(id === "card-picker" ? "select" : "div"); node.id = id; d.document.body.appendChild(node);
+  for (const id of ["card-picker", "duration-format", "duration-example", "card-app", "report-app", "timeline-app"]) {
+    const node = d.document.createElement(["card-picker", "duration-format"].includes(id) ? "select" : "div"); node.id = id; d.document.body.appendChild(node);
   }
   const html = fs.readFileSync(require.resolve("../preview.html"), "utf8");
+  const formatPicker = d.document.getElementById("duration-format");
+  formatPicker.value = html.match(/<option value="([^"]+)" selected>/)[1];
   for (const script of html.matchAll(/src="(js\/[^"?]+)(?:\?[^"\s]*)?"/g)) vm.runInContext(fs.readFileSync(require.resolve("../" + script[1]), "utf8"), d.context);
   const cardHost = d.document.getElementById("card-app");
   assert.match(cardHost.textContent, /Depends on/);
   assert.equal(cardHost.querySelector(".card-time").children[0].querySelector(".planning-title").textContent, "Planning", "Planning is above tabs and dependencies");
-  assert.equal(cardHost.querySelector(".planning-preview-value").textContent, "2w", "preview shows the saved estimate");
+  assert.equal(cardHost.querySelector(".planning-preview-value").textContent, "10d", "preview shows the saved estimate in the selected units");
   assert.equal(cardHost.querySelector(".planning-form").hidden, true);
   assert.ok(cardHost.querySelector('[aria-label="Edit planning"]'));
   assert.equal(cardHost.querySelectorAll('[aria-label="ETA"]').length, 1, "one editor updates the original estimate");
@@ -207,6 +209,11 @@ test("the complete preview boots with the real HTML script order and exposes the
   assert.match(d.document.getElementById("report-app").textContent, /2d 10m/);
   assert.match(d.document.getElementById("timeline-app").textContent, /Task D/);
   assert.doesNotMatch(d.document.getElementById("timeline-app").querySelector(".timeline-summary").textContent, /incomplete/);
+  assert.equal(d.document.getElementById("duration-example").textContent, "51d 6h 28m left");
+  formatPicker.value = "weeks";
+  await formatPicker.fire("change");
+  assert.equal(cardHost.querySelector(".planning-preview-value").textContent, "2w");
+  assert.equal(d.document.getElementById("duration-example").textContent, "10w 1d 6h 28m left");
 });
 
 test("stale dependency searches cannot replace the selected card identity", async () => {
