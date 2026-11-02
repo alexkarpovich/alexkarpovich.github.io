@@ -96,7 +96,7 @@ test("settings save several dates across months and preserve legacy exclusions",
   await h.render(); // Trello refresh must not discard unsaved edits.
   h.form().fire("submit");
   await tick();
-  assert.deepEqual(h.saved(), { hoursPerDay: 6, daysPerWeek: 4, daysPerMonth: 22, weekStartsOn: 0, excludedDates: ["2020-01-01", first, second].sort() });
+  assert.deepEqual(h.saved(), { hoursPerDay: 6, daysPerWeek: 4, daysPerMonth: 22, durationFormat: "months", weekStartsOn: 0, excludedDates: ["2020-01-01", first, second].sort() });
   assert.equal(h.closed(), true);
 });
 
@@ -126,12 +126,32 @@ test("read-only boards and failed reads cannot overwrite settings", async () => 
     await h.render();
     assert.equal(h.byId("hours").disabled, true);
     assert.equal(h.byId("month-days").disabled, true);
+    assert.equal(h.byId("duration-format").disabled, true);
     assert.equal(h.day(10).disabled, true);
     h.form().fire("submit");
     await tick();
     assert.equal(h.saved(), undefined);
     assert.ok(h.error());
   }
+});
+
+test("display format loads, previews changes and persists with board settings", async () => {
+  const h = harness({ raw: { durationFormat: "weeks" } });
+  assert.equal(h.byId("duration-format").disabled, true);
+  await h.render();
+  assert.equal(h.byId("duration-format").value, "weeks");
+  h.byId("duration-format").value = "days";
+  h.byId("duration-format").fire("change");
+  assert.match(h.form().textContent, /Example: 51d 1h 28m/);
+  await h.render();
+  assert.equal(h.byId("duration-format").value, "days");
+  h.form().fire("submit");
+  assert.equal(h.byId("duration-format").disabled, true);
+  await tick();
+  assert.equal(h.saved().durationFormat, "days");
+  const reopened = harness({ raw: h.saved() });
+  await reopened.render();
+  assert.equal(reopened.byId("duration-format").value, "days");
 });
 
 test("saved dates can be removed directly from the selection list", async () => {

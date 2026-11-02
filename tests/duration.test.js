@@ -46,6 +46,7 @@ test("uses board settings for a day and a week", function () {
     hoursPerDay: 1,
     daysPerWeek: 7,
     daysPerMonth: 20,
+    durationFormat: "months",
     weekStartsOn: 0,
     excludedDates: []
   });
@@ -94,6 +95,9 @@ test("month units are configurable and distinct from minutes", () => {
 });
 
 test("legacy boards get a default month and invalid settings are normalized", () => {
+  for (const durationFormat of [undefined, null, "invalid", [], "toString"]) {
+    assert.equal(duration.normalizeSettings({ durationFormat }).durationFormat, "months");
+  }
   assert.equal(duration.normalizeSettings(settings).daysPerMonth, 20);
   assert.equal(duration.parseDuration("1M", settings).minutes, 9600);
   assert.equal(duration.normalizeSettings({ daysPerMonth: "22" }).daysPerMonth, 22);
@@ -102,4 +106,18 @@ test("legacy boards get a default month and invalid settings are normalized", ()
   assert.equal(duration.normalizeSettings({ daysPerMonth: 40 }).daysPerMonth, 31);
   assert.deepEqual(duration.normalizeSettings({ excludedDates: ["2026-12-25", "2026-02-30", "2026-01-01", "2026-12-25"] }).excludedDates,
     ["2026-01-01", "2026-12-25"]);
+});
+
+test("display formats carry all minutes into the selected units", () => {
+  const total = duration.parseDuration("2M 2w 1d 6h 28m", settings).minutes;
+  const expected = { months: "2M 2w 1d 6h 28m", weeks: "10w 1d 6h 28m", days: "51d 6h 28m", hours: "414h 28m" };
+  for (const [durationFormat, text] of Object.entries(expected)) {
+    const custom = { ...settings, durationFormat };
+    assert.equal(duration.formatDuration(total, custom), text);
+    assert.equal(duration.formatDuration(-total, custom), "-" + text);
+    assert.equal(duration.formatDuration(0, custom), "0m");
+    assert.equal(duration.parseDuration(text, custom).minutes, total);
+    assert.equal(duration.parseDuration("1M 1w", custom).minutes, 12000);
+  }
+  assert.equal(duration.formatDuration(10275, { hoursPerDay: 6, daysPerWeek: 4, daysPerMonth: 22, durationFormat: "days" }), "28d 3h 15m");
 });

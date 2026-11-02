@@ -283,8 +283,16 @@
     paintTimeline();
   }
 
-  paintCard();
-  paintReport();
+  const formatPicker = document.getElementById("duration-format");
+  function paintFormat() {
+    settings.durationFormat = formatPicker.value;
+    const minutes = window.TimeDuration.parseDuration("2M 2w 1d 6h 28m", settings).minutes;
+    document.getElementById("duration-example").textContent = window.TimeBadges.badgesFor({ ownMinutes: 0, limitMinutes: minutes, spentMinutes: 0, kidsKnown: true }, settings)[0].text;
+    paintCard();
+    paintReport();
+  }
+  formatPicker.addEventListener("change", paintFormat);
+  paintFormat();
 
   if (location.search.indexOf("selftest=1") !== -1) runSelfTest();
 

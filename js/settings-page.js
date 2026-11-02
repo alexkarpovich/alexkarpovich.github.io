@@ -39,6 +39,13 @@
   const days = h("input", { type: "number", min: "1", max: "7", step: "1", required: true, id: "days", "aria-label": "Workdays in 1w" });
   const monthDays = h("input", { type: "number", min: "1", max: "31", step: "1", required: true, id: "month-days", "aria-label": "Workdays in 1M" });
   const week = h("select", { id: "week" }, [h("option", { value: "1" }, "Monday"), h("option", { value: "0" }, "Sunday")]);
+  const durationFormat = h("select", { id: "duration-format" }, [
+    h("option", { value: "months" }, "Months, weeks, days, hours, minutes"),
+    h("option", { value: "weeks" }, "Weeks, days, hours, minutes"),
+    h("option", { value: "days" }, "Days, hours, minutes"),
+    h("option", { value: "hours" }, "Hours, minutes")
+  ]);
+  const formatPreview = h("p", { class: "settings-summary", "aria-live": "polite" });
   function unitRow(symbol, name, input, unit) {
     return h("label", { class: "settings-unit", for: input.id }, [
       h("span", { class: "settings-unit-name" }, [h("strong", null, symbol), h("span", null, name)]),
@@ -47,10 +54,13 @@
   }
   const unitSummary = h("p", { class: "settings-summary", "aria-live": "polite" });
   function paintUnits() {
-    const value = duration.normalizeSettings({ hoursPerDay: hours.value, daysPerWeek: days.value, daysPerMonth: monthDays.value });
+    const value = duration.normalizeSettings({ hoursPerDay: hours.value, daysPerWeek: days.value, daysPerMonth: monthDays.value, durationFormat: durationFormat.value });
     unitSummary.textContent = "1w = " + value.hoursPerDay * value.daysPerWeek + "h · 1M = " + value.hoursPerDay * value.daysPerMonth + "h";
+    const example = (2 * value.daysPerMonth + 2 * value.daysPerWeek + 1) * value.hoursPerDay * 60 + 88;
+    formatPreview.textContent = "Example: " + duration.formatDuration(example, value);
   }
   [hours, days, monthDays].forEach(function (input) { input.addEventListener("input", paintUnits); });
+  durationFormat.addEventListener("change", function () { saveStatus.textContent = ""; paintUnits(); });
 
   const monthLabel = h("strong", { id: "calendar-month", "aria-live": "polite" });
   const calendarDays = h("div", { class: "settings-calendar-days", role: "group", "aria-labelledby": "calendar-month" });
@@ -121,6 +131,10 @@
       unitRow("1d", "Day", hours, "hours"), unitRow("1w", "Week", days, "workdays"), unitRow("1M", "Month", monthDays, "workdays"), unitSummary
     ]),
     h("section", { class: "settings-section" }, [
+      heading("Time display", "Applies to badges, cards, reports and exports across this board. Larger units are converted into the selected units using the workday length above. You can still enter months and weeks."),
+      h("label", { class: "settings-format", for: "duration-format" }, ["Display units", durationFormat]), formatPreview
+    ]),
+    h("section", { class: "settings-section" }, [
       heading("Non-working days", "Click dates to toggle days off, across any months. Epic finish estimates skip selected dates and all Saturdays and Sundays."),
       h("label", { class: "settings-week-start", for: "week" }, ["Week starts on", week]),
       h("div", { class: "settings-calendar" }, [
@@ -137,7 +151,7 @@
   ]);
 
   function lockForm() {
-    [hours, days, monthDays, week, button].forEach(function (control) { control.disabled = !ready || !canWrite || saving; });
+    [hours, days, monthDays, durationFormat, week, button].forEach(function (control) { control.disabled = !ready || !canWrite || saving; });
     button.textContent = saving ? "Saving…" : "Save settings";
     paintCalendar();
   }
@@ -185,6 +199,7 @@
     if (!ready || !canWrite || saving || !form.reportValidity()) return;
     const next = duration.normalizeSettings({
       hoursPerDay: hours.value, daysPerWeek: days.value, daysPerMonth: monthDays.value,
+      durationFormat: durationFormat.value,
       weekStartsOn: week.value, excludedDates: Array.from(excludedDates)
     });
     saving = true;
@@ -225,6 +240,7 @@
       hours.value = String(settings.hoursPerDay);
       days.value = String(settings.daysPerWeek);
       monthDays.value = String(settings.daysPerMonth);
+      durationFormat.value = settings.durationFormat;
       week.value = String(settings.weekStartsOn);
       excludedDates = new Set(settings.excludedDates);
       ready = true;

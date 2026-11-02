@@ -23,6 +23,7 @@
       hoursPerDay: clampInt(source.hoursPerDay, 1, 24, 8),
       daysPerWeek: clampInt(source.daysPerWeek, 1, 7, 5),
       daysPerMonth: clampInt(source.daysPerMonth, 1, 31, 20),
+      durationFormat: ["months", "weeks", "days", "hours"].includes(source.durationFormat) ? source.durationFormat : "months",
       weekStartsOn: Number(source.weekStartsOn) === 0 ? 0 : 1,
       excludedDates: Array.from(new Set((Array.isArray(source.excludedDates) ? source.excludedDates : []).filter(function (value) {
         const date = String(value || "");
@@ -96,11 +97,12 @@
     left = Math.abs(left);
     const units = unitMinutes(settings);
     const parts = [];
-    const months = Math.floor(left / units.month);
+    const format = normalizeSettings(settings).durationFormat;
+    const months = format === "months" ? Math.floor(left / units.month) : 0;
     left -= months * units.month;
-    const weeks = Math.floor(left / units.week);
+    const weeks = format === "months" || format === "weeks" ? Math.floor(left / units.week) : 0;
     left -= weeks * units.week;
-    const days = Math.floor(left / units.day);
+    const days = format !== "hours" ? Math.floor(left / units.day) : 0;
     left -= days * units.day;
     const hours = Math.floor(left / 60);
     const mins = left % 60;

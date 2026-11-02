@@ -241,6 +241,14 @@ test("badge text shows logged time and epic remainder", function () {
   assert.equal(badgeList(0, 480, null)[0].text, "limit 1d");
 });
 
+test("card badges honor the board's compact duration format", () => {
+  const settings = { durationFormat: "days" };
+  const minutes = duration.parseDuration("2M 2w 1d 6h 28m", settings).minutes;
+  const summary = { ownMinutes: minutes, limitMinutes: minutes, spentMinutes: 0, kidsKnown: true };
+  assert.deepEqual(badgeApi.badgesFor(summary, settings).map(badge => badge.text), ["51d 6h 28m", "51d 6h 28m left"]);
+  assert.equal(badgeApi.badgesFor({ ...summary, spentMinutes: minutes * 2 }, settings)[1].text, "over 51d 6h 28m");
+});
+
 test("XLSX export contains valid ZIP entries, escapes text and keeps numeric minutes", async function () {
   const report = aggregate.buildReport(fixture(), {
     from: "2026-10-19",

@@ -27,6 +27,15 @@
     <h1>Preview without Trello</h1>
     <p class="lead">Same card, report and timeline UI as on the board. Data lives only in this browser tab.</p>
     <p id="selftest-result" class="hint"></p>
+    <label class="field">Display units
+      <select id="duration-format">
+        <option value="months">Months, weeks, days, hours, minutes</option>
+        <option value="weeks">Weeks, days, hours, minutes</option>
+        <option value="days" selected>Days, hours, minutes</option>
+        <option value="hours">Hours, minutes</option>
+      </select>
+    </label>
+    <p id="duration-example" class="hint" aria-live="polite"></p>
     <div class="preview-grid">
       <section>
         <label class="field">Card
