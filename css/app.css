@@ -403,11 +403,7 @@ button:disabled,
   width: 132px;
 }
 
-.entry-list, .child-list { max-height: 260px; overflow: auto; margin-top: 4px; }
-.entry-list, .child-list, .dependency-list { scrollbar-width: none; }
-.entry-list::-webkit-scrollbar,
-.child-list::-webkit-scrollbar,
-.dependency-list::-webkit-scrollbar { display: none; }
+.entry-list, .child-list { margin-top: 4px; }
 .entry {
   min-width: 0;
   padding: 6px 8px;
