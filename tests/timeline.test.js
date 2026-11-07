@@ -314,6 +314,39 @@ test("Trello Done is the completion source; legacy planning flags cannot complet
   assert.equal(epic.rows.get("root").status, "Scheduled", "an epic mark does not complete unfinished children");
 });
 
+test("Mark complete removes only a group's own remaining ETA and reopening restores it", () => {
+  const cards = [group("phase", ["child"], { limitMinutes: 1920, dueComplete: true, entries: [{ ymd: 20261020, minutes: 120 }] }),
+    task("child", 480), task("after", 480, { dependencyIds: ["phase"] })];
+  const original = structuredClone(cards);
+  const p = plan(cards, { rootIds: ["after"], today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(p.tasks.find(item => item.id === "phase").total, 0);
+  assert.equal(p.rows.get("phase").estimate, 1920);
+  assert.equal(p.rows.get("phase").spent, 120);
+  assert.equal(p.rows.get("phase").minutes, 480, "unfinished children still contribute");
+  assert.equal(p.rows.get("after").start, "2026-10-27");
+  assert.equal(p.finish, "2026-10-27");
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 960);
+  assert.deepEqual(cards, original, "completion never rewrites estimates or logs");
+  cards[0].dueComplete = false;
+  const reopened = plan(cards, { rootIds: ["after"], today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(reopened.tasks.find(item => item.id === "phase").total, 1800);
+  assert.equal(reopened.finish, "2026-11-02");
+});
+
+test("Mark complete keeps a leaf's unused estimate but immediately releases its successor", () => {
+  const cards = [task("before", 1920, { dueComplete: true, entries: [{ ymd: 20261020, minutes: 120 }] }),
+    task("after", 480, { dependencyIds: ["before"] })];
+  const p = plan(cards, { rootIds: ["after"], today: "2026-10-25", calendar: { baseFte: 1 } });
+  assert.equal(p.rows.get("before").estimate, 1920);
+  assert.equal(p.rows.get("before").spent, 120);
+  assert.equal(p.rows.get("before").minutes, 0);
+  assert.equal(p.rows.get("before").status, "Done");
+  assert.deepEqual(p.rows.get("before").remainingSegments, []);
+  assert.equal(p.rows.get("after").start, start);
+  assert.equal(p.finish, start);
+  assert.equal(p.days[0].minutes, 480);
+});
+
 test("future-dated entries cannot become actuals or reduce remaining work", () => {
   const p = plan([task("a", 480, { entries: [{ ymd: 20261027, minutes: 480 }] })], { today: "2026-10-26" });
   assert.equal(p.rows.get("a").spent, 0);

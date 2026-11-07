@@ -156,7 +156,9 @@
       }))).filter(function (dep) { return dep !== id; });
     }
     const tasks = order.map(function (id) {
-      const card = g.byId.get(id), done = !!card && (estimatedGroups.has(id) ? alreadyComplete(id) : card.dueComplete === true);
+      // Native completion clears this card's own work, while child work keeps
+      // contributing independently to the group's dates and dependencies.
+      const card = g.byId.get(id), done = !!card && (card.dueComplete === true || estimatedGroups.has(id) && alreadyComplete(id));
       const spent = workSpent(id);
       const estimate = card && card.limitMinutes;
       const overrun = estimate != null ? Math.max(0, spent - estimate) : 0;
