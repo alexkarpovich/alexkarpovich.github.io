@@ -79,13 +79,22 @@
     const g = graph(cards), calendar = normalizeCalendar(options.calendar);
     const roots = options.rootIds || cards.filter(function (card) { return !g.parents.has(card.id); }).map(function (card) { return card.id; });
     const scope = new Set(), completed = new Map();
+    // A completed stage closes its subtree for forecasting without changing
+    // the children's native Trello completion flags.
+    function markedComplete(id) {
+      return [...g.ancestors(id), id].some(key => {
+        const card = g.byId.get(key);
+        return card?.dueComplete === true && !card.missing;
+      });
+    }
     function alreadyComplete(id, path) {
       if (completed.has(id)) return completed.get(id);
+      if (markedComplete(id)) return true;
       path = new Set(path || []);
       if (path.has(id)) return false;
       path.add(id);
       const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
-      const done = !!card && !card.missing && (kids.length ? kids.every(function (kid) { return alreadyComplete(kid, path); }) : card.dueComplete === true);
+      const done = !!kids?.length && !card.missing && kids.every(function (kid) { return alreadyComplete(kid, path); });
       completed.set(id, done); return done;
     }
     function include(id) {
@@ -98,7 +107,7 @@
     roots.forEach(include);
     const cycleIds = new Set(cycles(g, roots));
     const warnings = [];
-    if (cycleIds.size) warnings.push("Circular links block the affected work. Remove the cycle to calculate its dates.");
+    if (cycleIds.size) warnings.push("Circular links block work. Remove the cycle to calculate dates.");
     // Every explicit ETA contributes work; only unestimated leaves use a parent's ETA.
     const estimatedGroups = new Set(cards.filter(function (card) {
       const kids = card.linkedIds || card.kids || [];
@@ -107,7 +116,7 @@
     const estimateOwner = new Map();
     scope.forEach(function (id) {
       const card = g.byId.get(id);
-      if (!card || card.missing || card.limitMinutes != null || card.dueComplete || (card.linkedIds || card.kids || []).length) return;
+      if (!card || card.missing || card.limitMinutes != null || markedComplete(id) || (card.linkedIds || card.kids || []).length) return;
       const queue = (g.parents.get(id) || []).slice(), seen = new Set([id]);
       for (const parent of queue) {
         if (seen.has(parent)) continue;
@@ -156,14 +165,12 @@
       }))).filter(function (dep) { return dep !== id; });
     }
     const tasks = order.map(function (id) {
-      // Native completion clears this card's own work, while child work keeps
-      // contributing independently to the group's dates and dependencies.
-      const card = g.byId.get(id), done = !!card && (card.dueComplete === true || estimatedGroups.has(id) && alreadyComplete(id));
+      const card = g.byId.get(id), done = alreadyComplete(id);
       const spent = workSpent(id);
       const estimate = card && card.limitMinutes;
       const overrun = estimate != null ? Math.max(0, spent - estimate) : 0;
       const remaining = done ? 0 : estimate != null ? Math.max(0, estimate - spent) : null;
-      const issue = !card || card.missing ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
+      const issue = !done && (!card || card.missing) ? "Unavailable" : cycleIds.has(id) ? "Circular links" :
         !done && remaining == null ? "Set ETA" : !done && remaining <= EPS ? "ETA exhausted · update ETA or mark Done" : "";
       return { id: id, estimate: estimate, spent: spent, overrun: overrun, nativeDone: done, remaining: remaining || 0, total: remaining || 0, issue: issue, done: done && !issue,
         start: null, finish: done && !issue ? forecastStart : null, startTime: null, finishTime: done && !issue ? offset(forecastStart) : null,

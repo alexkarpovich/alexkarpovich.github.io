@@ -311,10 +311,35 @@ test("Trello Done is the completion source; legacy planning flags cannot complet
   assert.equal(reopened.days[0].minutes, 480);
   assert.equal(model.decode({ e: [], p: { done: true } }).planning, null);
   const epic = plan([group("root", ["a"], { dueComplete: true }), task("a")], { rootIds: ["root"] });
-  assert.equal(epic.rows.get("root").status, "Scheduled", "an epic mark does not complete unfinished children");
+  assert.equal(epic.rows.get("root").status, "Done");
+  assert.equal(epic.days[0].minutes, 0);
 });
 
-test("Mark complete removes only a group's own remaining ETA and reopening restores it", () => {
+test("marking a phase complete releases its successor and reopening restores the subtree", () => {
+  const cards = [group("root", ["phase", "next"]),
+    group("phase", ["sub", "unknown"], { limitMinutes: 2400, dueComplete: true, dependencyIds: ["old"] }),
+    group("sub", ["a", "b"], { limitMinutes: 960 }),
+    task("a", 480, { entries: [{ minutes: 120 }] }), task("b", null),
+    task("next", 480, { dependencyIds: ["phase"] })];
+  const options = { rootIds: ["root"], calendar: { baseFte: 1 } };
+  const closed = plan(cards, options);
+  assert.equal(closed.complete, true);
+  assert.equal(closed.rows.get("phase").status, "Done");
+  assert.equal(closed.rows.get("phase").minutes, 0);
+  assert.equal(closed.rows.get("next").startTime, 0);
+  assert.equal(closed.finish, start);
+  assert.equal(closed.rows.has("old"), false);
+  assert.equal(closed.days.reduce((sum, day) => sum + day.minutes, 0), 480);
+  assert.equal(cards.find(card => card.id === "a").dueComplete, undefined);
+  cards.find(card => card.id === "phase").dueComplete = false;
+  const reopened = plan(cards, options);
+  assert.equal(reopened.complete, false);
+  assert.equal(reopened.rows.has("old"), true);
+  assert.ok(reopened.rows.get("phase").minutes > 0);
+  assert.equal(reopened.rows.get("next").start, null);
+});
+
+test("Mark complete removes a group and its children from future load and reopening restores it", () => {
   const cards = [group("phase", ["child"], { limitMinutes: 1920, dueComplete: true, entries: [{ ymd: 20261020, minutes: 120 }] }),
     task("child", 480), task("after", 480, { dependencyIds: ["phase"] })];
   const original = structuredClone(cards);
@@ -322,10 +347,10 @@ test("Mark complete removes only a group's own remaining ETA and reopening resto
   assert.equal(p.tasks.find(item => item.id === "phase").total, 0);
   assert.equal(p.rows.get("phase").estimate, 1920);
   assert.equal(p.rows.get("phase").spent, 120);
-  assert.equal(p.rows.get("phase").minutes, 480, "unfinished children still contribute");
-  assert.equal(p.rows.get("after").start, "2026-10-27");
-  assert.equal(p.finish, "2026-10-27");
-  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 960);
+  assert.equal(p.rows.get("phase").minutes, 0);
+  assert.equal(p.rows.get("after").start, start);
+  assert.equal(p.finish, start);
+  assert.equal(p.days.reduce((sum, day) => sum + day.minutes, 0), 480);
   assert.deepEqual(cards, original, "completion never rewrites estimates or logs");
   cards[0].dueComplete = false;
   const reopened = plan(cards, { rootIds: ["after"], today: "2026-10-25", calendar: { baseFte: 1 } });

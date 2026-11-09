@@ -360,3 +360,21 @@ test("opening from a card keeps its ID selected and includes descendants and pre
   assert.equal(project.value, "Same · epic");
   assert.equal(h.host.querySelectorAll(".timeline-work-row").length, 3);
 });
+
+test("refreshing after Mark complete on a phase removes its subtree from planned load", async () => {
+  const cards = [{ id: "phase", name: "Phase", dueComplete: false },
+    { id: "child", name: "Child" }, { id: "next", name: "Next" }];
+  const h = harness({ rootId: "phase", cards, timeById: {
+    phase: { e: [], lim: 960, lc: ["child"] }, child: { e: [], lim: 480 }
+  } });
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /3d remaining/);
+  cards[0].dueComplete = true;
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /0m remaining/);
+  assert.equal(h.host.querySelectorAll(".is-done").length, 2);
+  cards[0].dueComplete = false;
+  await h.render();
+  assert.match(h.host.querySelector(".timeline-summary").textContent, /3d remaining/);
+  assert.equal(h.host.querySelector(".is-done"), null);
+});
