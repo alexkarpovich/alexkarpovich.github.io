@@ -92,6 +92,19 @@ test("epic draws continuous actual and remaining periods without changing logged
   assert.match(h.host.querySelector(".timeline-summary").textContent, /1d remaining/);
 });
 
+test("epic tooltip compares total ETA with total remaining work", async () => {
+  const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "EPIC" }, { id: "task", name: "Task" }],
+    timeById: { epic: { e: [], lim: 480, lc: ["task"] }, task: { e: [["entry", 20261020, 120, 0]], lim: 960 } } });
+  await h.render();
+  const bar = h.host.querySelector(".is-group");
+  assert.match(bar.getAttribute("aria-label"), /\nETA: 3d\nSpent: 2h\nRemaining: 2d 6h\nOver ETA: 0m\nScheduled$/);
+  await bar.fire("click");
+  const values = h.host.querySelectorAll(".timeline-tooltip dd").map(node => node.textContent);
+  assert.ok(values.includes("3d"));
+  assert.ok(values.includes("2d 6h"));
+  assert.match(h.host.querySelector(".timeline-card-text").textContent, /ETA 3d · 2h spent · 2d 6h left/);
+});
+
 test("an over-limit phase displays actuals and requires an estimate update without inventing future overrun", async () => {
   const h = harness({ rootId: "epic", cards: [{ id: "epic", name: "EPIC" }, { id: "phase", name: "Phase" }, { id: "a", name: "A" }],
     timeById: { epic: { e: [], lc: ["phase"] }, phase: { e: [], lim: 3360, lc: ["a"] }, a: { e: [["a1", 20261021, 3613, 0]] } } });

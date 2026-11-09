@@ -145,6 +145,32 @@ test("own epic ETA works with missing child ETA and preserves external dependenc
   assert.ok(dependent.tasks.find(item => item.id === "phase").startTime >= dependent.tasks.find(item => item.id === "before").finishTime);
 });
 
+test("group ETA and overrun cover the same unique work items as remaining work", () => {
+  const cards = [group("epic", ["x", "y"], { limitMinutes: 480 }),
+    group("x", ["shared"], { limitMinutes: 240 }), group("y", ["shared"]),
+    task("shared", 960, { entries: [{ ymd: 20261020, minutes: 120 }] })];
+  const p = plan(cards, { rootIds: ["epic"], today: "2026-10-26" });
+  const row = p.rows.get("epic");
+  assert.equal(row.estimate, 1680);
+  assert.equal(row.spent, 120);
+  assert.equal(row.minutes, 1560);
+  assert.equal(row.overrun, 0);
+  assert.equal(p.rows.get("y").estimate, 960, "groups without their own ETA roll up child estimates");
+  assert.equal(cards[0].limitMinutes, 480, "the saved estimate stays unchanged");
+
+  cards[3].entries[0].minutes = 1080;
+  const over = plan(cards, { rootIds: ["epic"], today: "2026-10-26" }).rows.get("epic");
+  assert.equal(over.estimate, 1680);
+  assert.equal(over.spent, 1080);
+  assert.equal(over.minutes, 720);
+  assert.equal(over.overrun, 120, "child overruns roll up once even if another task has unused budget");
+
+  cards[3].dueComplete = true;
+  const done = plan(cards, { rootIds: ["epic"], today: "2026-10-26" }).rows.get("epic");
+  assert.equal(done.estimate, 1680, "completion preserves the total estimate");
+  assert.equal(done.minutes, 0);
+});
+
 test("a child ETA adds load and extends its parent and the overall forecast", () => {
   const p = plan([group("epic", ["task"], { limitMinutes: 480 }), task("task", 960)], { calendar: { baseFte: 1 } });
   assert.equal(p.finish, "2026-10-28");
@@ -345,7 +371,7 @@ test("Mark complete removes a group and its children from future load and reopen
   const original = structuredClone(cards);
   const p = plan(cards, { rootIds: ["after"], today: "2026-10-25", calendar: { baseFte: 1 } });
   assert.equal(p.tasks.find(item => item.id === "phase").total, 0);
-  assert.equal(p.rows.get("phase").estimate, 1920);
+  assert.equal(p.rows.get("phase").estimate, 2400);
   assert.equal(p.rows.get("phase").spent, 120);
   assert.equal(p.rows.get("phase").minutes, 0);
   assert.equal(p.rows.get("after").start, start);

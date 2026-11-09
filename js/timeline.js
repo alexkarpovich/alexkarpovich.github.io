@@ -245,17 +245,25 @@
       const issues = Array.from(new Set(items.map(function (task) { return task.issue; }).filter(Boolean)));
       const owner = estimateOwner.get(id), ownerCard = owner && g.byId.get(owner);
       const ownTask = byTask.get(id);
+      // Group metrics must cover the same unique work items as the forecast.
+      // Showing only the group's own ETA beside the subtree's remaining work
+      // makes the remaining budget appear larger than its estimate.
+      let estimate = null, overrun = 0;
+      for (const task of items) {
+        if (task.estimate != null) estimate = (estimate || 0) + task.estimate;
+        overrun += task.overrun;
+      }
       const actual = history(id);
       const spentMinutes = actual.reduce((sum, segment) => sum + segment.minutes, 0);
       const nativeDone = items.length > 0 && items.every(task => task.nativeDone);
-      const actualFinish = actual.length ? actual[actual.length - 1].date : null;
+      const actualFinish = actual.at(-1)?.date;
       const startTimes = items.map(function (task) { return task.startTime; }).filter(function (value) { return value != null; });
       const status = owner && !items.length ? "Included in " + (ownerCard ? ownerCard.name : "parent") + " ETA" :
-        complete ? (items.every(function (task) { return task.nativeDone; }) ? "Done" : "Scheduled") :
+        complete ? (nativeDone ? "Done" : "Scheduled") :
           issues.join(" · ") || "Blocked / beyond 10-year horizon";
-      rows.set(id, { id: id, card: card, start: actual.length ? actual[0].date : starts[0] || (complete ? forecastStart : null), finish: nativeDone && actualFinish ? actualFinish : complete ? finishes[finishes.length - 1] : null,
+      rows.set(id, { id: id, card: card, start: actual.length ? actual[0].date : starts[0] || (complete ? forecastStart : null), finish: nativeDone && actualFinish ? actualFinish : complete ? finishes.at(-1) : null,
         startTime: actual.length ? actual[0].start : startTimes.length ? Math.min(...startTimes) : complete ? offset(forecastStart) : null,
-        estimate: ownTask ? ownTask.estimate : null, spent: actual.length ? spentMinutes : ownTask ? ownTask.spent : 0, overrun: ownTask ? ownTask.overrun : 0,
+        estimate: estimate, spent: actual.length ? spentMinutes : ownTask ? ownTask.spent : 0, overrun: overrun,
         spentSegments: actual,
         remainingSegments: items.filter(task => task.startTime != null && !task.nativeDone).map(task => ({ start: task.startTime, finish: task.finishTime != null ? task.finishTime : offset(task.lastDate) + 1 })),
         minutes: items.reduce(function (sum, task) { return sum + task.total; }, 0), complete: complete, status: status, dependencies: g.dependencies(id) });
