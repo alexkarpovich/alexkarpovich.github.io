@@ -4,6 +4,7 @@
   else root.TimeTimeline = api;
 })(typeof self !== "undefined" ? self : this, function () {
   const EPS = 1e-7;
+  function links(card) { return card && (card.linkedIds || card.kids) || []; }
   function validDate(value) {
     return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "1970-01-01" && value <= "2999-12-31" &&
       Number.isFinite(Date.parse(value + "T12:00:00Z")) && new Date(value + "T12:00:00Z").toISOString().slice(0, 10) === value;
@@ -35,7 +36,7 @@
   function graph(cards) {
     const byId = new Map(cards.map(function (card) { return [card.id, card]; }));
     const parents = new Map();
-    cards.forEach(function (card) { (card.linkedIds || card.kids || []).forEach(function (id) {
+    cards.forEach(function (card) { links(card).forEach(function (id) {
       if (!parents.has(id)) parents.set(id, []);
       parents.get(id).push(card.id);
     }); });
@@ -50,7 +51,7 @@
       return Array.from(result);
     }
     const edges = new Map();
-    cards.forEach(function (card) { edges.set(card.id, Array.from(new Set((card.linkedIds || card.kids || []).concat(dependencies(card.id))))); });
+    cards.forEach(function (card) { edges.set(card.id, Array.from(new Set(links(card).concat(dependencies(card.id))))); });
     return { byId: byId, parents: parents, ancestors: ancestors, dependencies: dependencies, edges: edges };
   }
   function cycles(g, roots) {
@@ -93,7 +94,7 @@
       path = new Set(path || []);
       if (path.has(id)) return false;
       path.add(id);
-      const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
+      const card = g.byId.get(id), kids = links(card);
       const done = !!kids?.length && !card.missing && kids.every(function (kid) { return alreadyComplete(kid, path); });
       completed.set(id, done); return done;
     }
@@ -101,7 +102,7 @@
       if (scope.has(id)) return;
       scope.add(id);
       const card = g.byId.get(id);
-      if (card) (card.linkedIds || card.kids || []).forEach(include);
+      links(card).forEach(include);
       if (!alreadyComplete(id)) g.dependencies(id).forEach(include);
     }
     roots.forEach(include);
@@ -110,13 +111,13 @@
     if (cycleIds.size) warnings.push("Circular links block work. Remove the cycle to calculate dates.");
     // Every explicit ETA contributes work; only unestimated leaves use a parent's ETA.
     const estimatedGroups = new Set(cards.filter(function (card) {
-      const kids = card.linkedIds || card.kids || [];
+      const kids = links(card);
       return !card.missing && card.limitMinutes != null && kids.length;
     }).map(function (card) { return card.id; }));
     const estimateOwner = new Map();
     scope.forEach(function (id) {
       const card = g.byId.get(id);
-      if (!card || card.missing || card.limitMinutes != null || markedComplete(id) || (card.linkedIds || card.kids || []).length) return;
+      if (!card || card.missing || card.limitMinutes != null || markedComplete(id) || links(card).length) return;
       const queue = (g.parents.get(id) || []).slice(), seen = new Set([id]);
       for (const parent of queue) {
         if (seen.has(parent)) continue;
@@ -136,7 +137,7 @@
       path = new Set(path || []);
       if (path.has(id)) return [id];
       path.add(id);
-      const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
+      const card = g.byId.get(id), kids = links(card);
       const ids = !kids || !kids.length ? (estimateOwner.has(id) ? [] : [id]) :
         Array.from(new Set((estimatedGroups.has(id) ? [id] : []).concat(kids.flatMap(function (kid) { return leaves(kid, path); }))));
       leafCache.set(id, ids); return ids;
@@ -146,7 +147,7 @@
     function prioritize(id) {
       if (estimateOwner.has(id) && scope.has(estimateOwner.get(id))) return;
       if (ordered.has(id)) return; ordered.add(id);
-      const card = g.byId.get(id), kids = card && (card.linkedIds || card.kids || []);
+      const card = g.byId.get(id), kids = links(card);
       if (kids) kids.forEach(prioritize);
       if (estimatedGroups.has(id) || !kids || !kids.length) order.push(id);
     }
@@ -231,7 +232,7 @@
           const date = entryDate(entry);
           if (date) dates.set(date, (dates.get(date) || 0) + entry.minutes);
         });
-        if (card) (card.linkedIds || card.kids || []).forEach(visit);
+        links(card).forEach(visit);
       }
       visit(id);
       return Array.from(dates, ([date, minutes]) => ({ date, minutes, start: offset(date), finish: Math.min(offset(date) + 1, boundary) })).sort((a, b) => a.start - b.start);
@@ -249,21 +250,16 @@
       const spentMinutes = actual.reduce((sum, segment) => sum + segment.minutes, 0);
       const nativeDone = items.length > 0 && items.every(task => task.nativeDone);
       const spent = actual.length ? spentMinutes : ownTask ? ownTask.spent : 0;
-      // A saved ETA is that card's budget, matching the epic card. Descendant
-      // ETAs stay on their own rows and in the forecast, but adding them here
-      // replaces the saved value and can make Remaining larger than the budget.
-      // Groups with no ETA of their own still roll up the same unique work items.
-      let estimate = null, overrun = 0, minutes = 0;
-      if (card && !card.missing && card.limitMinutes != null) {
-        estimate = card.limitMinutes;
-        overrun = Math.max(0, spent - card.limitMinutes);
-        minutes = nativeDone ? 0 : Math.max(0, card.limitMinutes - spent);
-      } else {
-        for (const task of items) {
-          if (task.estimate != null) estimate = (estimate || 0) + task.estimate;
-          overrun += task.overrun;
-        }
-        minutes = items.reduce(function (sum, task) { return sum + task.total; }, 0);
+      // Own ETA is the card budget. Descendant ETAs stay on their rows.
+      const limit = !card?.missing && card?.limitMinutes;
+      let estimate = limit || null, overrun = 0, minutes = 0;
+      if (limit) {
+        overrun = Math.max(0, spent - limit);
+        minutes = nativeDone ? 0 : Math.max(0, limit - spent);
+      } else for (const task of items) {
+        if (task.estimate != null) estimate = (estimate || 0) + task.estimate;
+        overrun += task.overrun;
+        minutes += task.total;
       }
       const actualFinish = actual.at(-1)?.date;
       const startTimes = items.map(function (task) { return task.startTime; }).filter(function (value) { return value != null; });
